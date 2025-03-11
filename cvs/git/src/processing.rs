@@ -1,4 +1,5 @@
 use git2::Repository;
+use std::path::PathBuf;
 
 use crate::git::Repo;
 
