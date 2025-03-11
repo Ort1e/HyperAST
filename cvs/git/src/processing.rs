@@ -136,6 +136,22 @@ impl ConfiguredRepoHandle2 {
             config: self.config,
         }
     }
+
+    pub fn fetch_to(self, path : impl Into<PathBuf>) -> ConfiguredRepo2 {
+        ConfiguredRepo2 {
+            repo: self.spec.fetch_to(path),
+            spec: self.spec,
+            config: self.config,
+        }
+    }
+
+    pub fn nofetch_to(self, path : impl Into<PathBuf>) -> ConfiguredRepo2 {
+        ConfiguredRepo2 {
+            repo: self.spec.nofetch_to(path),
+            spec: self.spec,
+            config: self.config,
+        }
+    }
 }
 
 pub struct ConfiguredRepo {
