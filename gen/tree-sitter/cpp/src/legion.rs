@@ -192,12 +192,8 @@ impl<'store, 'cache, TS, More, const HIDDEN_NODES: bool> ZippedTreeGen
     for CppTreeGen<'store, 'cache, TS, More, HIDDEN_NODES>
 where
     TS: CppEnabledTypeStore<Ty2 = Type>,
-    More: tree_gen::Prepro<Type>
-        + tree_gen::More<
-            TS = TS,
-            T = hyperast::store::nodes::legion::HashedNodeRef<'store, NodeIdentifier>,
-            Acc = Acc,
-        >,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
 {
     type Stores = SimpleStores<TS>;
     type Text = [u8];
@@ -253,10 +249,13 @@ where
         let node = cursor.node();
         let kind = TS::obtain_type(&node);
         if HIDDEN_NODES {
-            if kind.is_hidden() || kind.is_repeat() {
+            if kind.is_repeat() {
                 // dbg!(kind);
-                // return PreResult::Ignore;
-            }
+                return PreResult::Ignore;
+            } else if kind.is_hidden() {
+                // dbg!(kind);
+                return PreResult::Ignore;
+            } 
         }
         if node.0.is_missing() {
             // dbg!(kind);
@@ -279,6 +278,7 @@ where
         }
         PreResult::Ok(acc)
     }
+
     fn pre(
         &mut self,
         text: &[u8],
@@ -353,8 +353,8 @@ where
     }
 }
 
-impl<'store, 'cache, 's, T, TS: CppEnabledTypeStore>
-    CppTreeGen<'store, 'cache, TS, NoOpMore<(TS, T), Acc>, true>
+impl<'store, 'cache, TS: CppEnabledTypeStore>
+    CppTreeGen<'store, 'cache, TS, NoOpMore<TS, Acc>, true>
 {
     pub fn new(stores: &'store mut SimpleStores<TS>, md_cache: &'cache mut MDCache) -> Self {
         Self {
@@ -385,12 +385,8 @@ impl<'store, 'cache, TS, More, const HIDDEN_NODES: bool>
     CppTreeGen<'store, 'cache, TS, More, HIDDEN_NODES>
 where
     TS: CppEnabledTypeStore<Ty2 = Type>,
-    More: tree_gen::Prepro<Type>
-        + tree_gen::More<
-            TS = TS,
-            T = hyperast::store::nodes::legion::HashedNodeRef<'store, NodeIdentifier>,
-            Acc = Acc,
-        >,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
 {
     pub fn with_more<M>(self, more: M) -> CppTreeGen<'store, 'cache, TS, M, HIDDEN_NODES> {
         CppTreeGen {
@@ -531,12 +527,8 @@ impl<'store, 'cache, TS, More, const HIDDEN_NODES: bool> TreeGen
     for CppTreeGen<'store, 'cache, TS, More, HIDDEN_NODES>
 where
     TS: CppEnabledTypeStore<Ty2 = Type>,
-    More: tree_gen::Prepro<Type>
-        + tree_gen::More<
-            TS = TS,
-            T = hyperast::store::nodes::legion::HashedNodeRef<'store, NodeIdentifier>,
-            Acc = Acc,
-        >,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
     TS::Ty2: hyperast::tree_gen::utils_ts::TsType,
 {
     type Acc = Acc;

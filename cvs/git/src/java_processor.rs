@@ -10,6 +10,7 @@ use hyperast_gen_ts_java::legion_with_refs::{self, Acc};
 use hyperast_gen_ts_java::types::{TStore, Type};
 
 use crate::processing::erased::ParametrizedCommitProc2;
+use crate::StackEle;
 use crate::{
     git::BasicGitObject,
     java::JavaAcc,
@@ -31,7 +32,7 @@ pub type SimpleStores = hyperast::store::SimpleStores<hyperast_gen_ts_java::type
 pub struct JavaProcessor<'repo, 'prepro, 'd, 'c, Acc> {
     repository: &'repo Repository,
     prepro: &'prepro mut RepositoryProcessor,
-    stack: Vec<(Oid, Vec<BasicGitObject>, Acc)>,
+    stack: Vec<StackEle<Acc>>,
     pub dir_path: &'d mut Peekable<Components<'c>>,
     handle: &'d crate::processing::erased::ParametrizedCommitProcessor2Handle<JavaProc>,
 }
@@ -56,7 +57,7 @@ impl<'repo, 'b, 'd, 'c> JavaProcessor<'repo, 'b, 'd, 'c, JavaAcc> {
                 .unwrap()
         });
         let acc = JavaAcc::new(name, scripting_acc);
-        let stack = vec![(oid, prepared, acc)];
+        let stack = vec![StackEle::new(oid, prepared, acc)];
         Self {
             stack,
             repository,
@@ -87,7 +88,7 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
                     let full_node = already.clone();
                     // let skiped_ana = *skiped_ana;
                     let id = full_node.0.compressed_node;
-                    let w = &mut self.stack.last_mut().unwrap().2;
+                    let w = &mut self.stack.last_mut().unwrap().acc;
                     let name = self.prepro.intern_object_name(&name);
                     assert!(!w.primary.children_names.contains(&name));
                     hyperast::tree_gen::Accumulator::push(w, (name, full_node));
@@ -119,14 +120,14 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
                     None
                 };
                 let acc = JavaAcc::new(name.try_into().unwrap(), prepro_acc);
-                self.stack.push((oid, prepared, acc));
+                self.stack.push(StackEle::new(oid, prepared, acc));
             }
             BasicGitObject::Blob(oid, name) => {
                 if crate::processing::file_sys::Java::matches(&name) {
                     self.prepro
                         .help_handle_java_file(
                             oid,
-                            &mut self.stack.last_mut().unwrap().2,
+                            &mut self.stack.last_mut().unwrap().acc,
                             &name,
                             self.repository,
                             *self.handle,
@@ -155,7 +156,7 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
         if self.stack.is_empty() {
             Some((full_node, skiped_ana))
         } else {
-            let w = &mut self.stack.last_mut().unwrap().2;
+            let w = &mut self.stack.last_mut().unwrap().acc;
             assert!(
                 !w.primary.children_names.contains(&name),
                 "{:?} {:?}",
@@ -179,7 +180,7 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
         }
     }
 
-    fn stack(&mut self) -> &mut Vec<(Oid, Vec<BasicGitObject>, JavaAcc)> {
+    fn stack(&mut self) -> &mut Vec<StackEle<JavaAcc>> {
         &mut self.stack
     }
 }
@@ -420,21 +421,18 @@ impl crate::processing::erased::Parametrized for JavaProcessorHolder {
                 #[cfg(feature = "tsg")]
                 let tsg = if let Some(q) = &t.tsg {
                     let tsg = q.deref();
-                    type M<'hast, HAST, Acc> = hyperast_tsquery::QueryMatcher<'hast, HAST, Acc>;
-                    type ExtQ<'hast, HAST, Acc> = hyperast_tsquery::ExtendingStringQuery<
-                        M<'hast, HAST, Acc>,
+                    type M<'hast, TS, Acc> = hyperast_tsquery::QueryMatcher<TS, Acc>;
+                    type ExtQ<'hast, TS, Acc> = hyperast_tsquery::ExtendingStringQuery<
+                        M<'hast, TS, Acc>,
                         tree_sitter::Language,
                     >;
 
                     let source: &str = tsg;
                     let language = hyperast_gen_ts_java::language();
 
-                    let mut file = tree_sitter_graph::ast::File::<
-                        M<
-                            &hyperast::store::SimpleStores<hyperast_gen_ts_java::types::TStore>,
-                            &Acc,
-                        >,
-                    >::new(language.clone());
+                    let mut file = tree_sitter_graph::ast::File::<M<&SimpleStores, &Acc>>::new(
+                        language.clone(),
+                    );
 
                     // let mty: &[_] = &[];
                     // let query_source = ExtQ::new(language.clone(), Box::new(mty), source.len());
@@ -452,8 +450,9 @@ impl crate::processing::erased::Parametrized for JavaProcessorHolder {
                     M::check(&mut file).unwrap();
 
                     let mut functions = tree_sitter_graph::functions::Functions::<
-                        tree_sitter_graph::graph::GraphErazing<
-                            hyperast_tsquery::MyNodeErazing<
+                        tree_sitter_graph::graph::Graph<
+                            // RNode<
+                            hyperast_tsquery::stepped_query_imm::Node<
                                 hyperast::store::SimpleStores<
                                     TStore,
                                     &hyperast::store::nodes::legion::NodeStoreInner,
@@ -462,7 +461,18 @@ impl crate::processing::erased::Parametrized for JavaProcessorHolder {
                                 &Acc,
                             >,
                         >,
-                    >::stdlib();
+                        // tree_sitter_graph::graph::GraphErazing<
+                        //     hyperast_tsquery::MyNodeErazing<
+                        //         hyperast::store::SimpleStores<
+                        //             TStore,
+                        //             &hyperast::store::nodes::legion::NodeStoreInner,
+                        //             &hyperast::store::labels::LabelStore,
+                        //         >,
+                        //         &Acc,
+                        //     >,
+                        // >,
+                    >::default();
+                    todo!();
                     // TODO port those path functions to the generified variant in my fork
                     // hyperast_tsquery::add_path_functions(&mut functions);
                     let functions = functions.as_any();
@@ -731,12 +741,7 @@ impl RepositoryProcessor {
                     #[cfg(feature = "tsg")]
                     {
                         let spec: &tree_sitter_graph::ast::File<
-                            hyperast_tsquery::QueryMatcher<
-                                &hyperast::store::SimpleStores<
-                                    hyperast_gen_ts_java::types::TStore,
-                                >,
-                                &Acc,
-                            >,
+                            hyperast_tsquery::QueryMatcher<_, &Acc>,
                         > = tsg.0.downcast_ref().unwrap();
                         let query = java_proc.query.as_ref().map(|x| &x.0);
                         let functions = tsg.1.clone();
@@ -768,7 +773,7 @@ impl RepositoryProcessor {
                     let mut java_tree_gen =
                         java_tree_gen::JavaTreeGen::with_preprocessing(stores, md_cache, more)
                             .with_line_break(line_break);
-                    crate::java::handle_java_file(&mut java_tree_gen, n, t)
+                    crate::java::handle_java_file::<_>(&mut java_tree_gen, n, t)
                 } else {
                     let mut java_tree_gen = java_tree_gen::JavaTreeGen::new(stores, md_cache)
                         .with_line_break(line_break);
@@ -876,7 +881,7 @@ mod experiments {
             acc: JavaAcc,
         ) {
             let tree = self.repository.find_tree(*current_object.id()).unwrap();
-            self.stack.push((*current_object.id(), prepared, acc));
+            self.stack.push(StackEle::new(*current_object.id(), prepared, acc));
         }
         fn pre(
             &mut self,
@@ -901,7 +906,7 @@ mod experiments {
                         self.prepro
                             .help_handle_java_file(
                                 *current_object.id(),
-                                &mut self.stack.last_mut().unwrap().2,
+                                &mut self.stack.last_mut().unwrap().acc,
                                 current_object.name(),
                                 self.repository,
                                 *self.handle,
@@ -936,7 +941,7 @@ mod experiments {
             if self.stack.is_empty() {
                 Some(full_node)
             } else {
-                let w = &mut self.stack.last_mut().unwrap().2;
+                let w = &mut self.stack.last_mut().unwrap().acc;
                 assert!(
                     !w.primary.children_names.contains(&name),
                     "{:?} {:?}",
