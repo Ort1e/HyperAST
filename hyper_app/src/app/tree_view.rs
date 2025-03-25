@@ -84,6 +84,7 @@ pub(crate) mod store {
                         hyperast_gen_ts_java::types::Lang::make(raw);
                     t.into()
                 }
+                "hyperast_gen_ts_cpp::types_alt::Lang" | 
                 "hyperast_gen_ts_cpp::types::Lang" => {
                     let t: &'static dyn hyperast::types::HyperType =
                         hyperast_gen_ts_cpp::types::Lang::make(raw);
@@ -134,29 +135,6 @@ pub(crate) mod store {
                 // unimplemented!()
                 self.node_store.unavailable_node()
             }
-        }
-    }
-
-    impl<'b> hyperast::types::inner_ref::NodeStore<NodeIdentifier> for AcessibleFetchedHyperAST<'b> {
-        type Ref = HashedNodeRef<'static, NodeIdentifier>;
-        fn scoped<R>(&self, id: &NodeIdentifier, f: impl Fn(&Self::Ref) -> R) -> R {
-            let t = &hyperast::types::NodeStore::resolve(self, id);
-            // SAFETY: safe as long as Self::Ref does not exposes its fake &'static fields
-            let t = unsafe { std::mem::transmute(t) };
-            f(t)
-        }
-        fn scoped_mut<R>(&self, id: &NodeIdentifier, mut f: impl FnMut(&Self::Ref) -> R) -> R {
-            let t = &hyperast::types::NodeStore::resolve(self, id);
-            // SAFETY: safe as long as Self::Ref does not exposes its fake &'static fields
-            let t = unsafe { std::mem::transmute(t) };
-            f(t)
-        }
-        fn multi<R, const N: usize>(
-            &self,
-            id: &[NodeIdentifier; N],
-            f: impl Fn(&[Self::Ref; N]) -> R,
-        ) -> R {
-            todo!()
         }
     }
 
@@ -286,6 +264,7 @@ pub(crate) mod store {
                         hyperast_gen_ts_java::types::Lang::make(raw);
                     t.into()
                 }
+                "hyperast_gen_ts_cpp::types_alt::Lang" | 
                 "hyperast_gen_ts_cpp::types::Lang" => {
                     let t: &'static dyn hyperast::types::HyperType =
                         hyperast_gen_ts_cpp::types::Lang::make(raw);

@@ -4228,6 +4228,7 @@ dependencies = [
  "env_logger 0.11.5",
  "hashbrown 0.14.5",
  "hyperast",
+ "hyperast_tsquery",
  "legion",
  "libc",
  "log",
@@ -4235,7 +4236,8 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "tree-sitter",
- "tree-sitter-cpp",
+ "tree-sitter-cpp 0.23.1",
+ "tree-sitter-cpp 0.23.4",
  "tuples",
 ]
 
@@ -4330,6 +4332,7 @@ dependencies = [
  "hyperast",
  "legion",
  "libc",
+ "log",
  "num",
  "pretty_assertions",
  "tree-sitter",
@@ -6286,7 +6289,7 @@ dependencies = [
  "syn 2.0.99",
  "tree-sitter",
  "tree-sitter-c",
- "tree-sitter-cpp",
+ "tree-sitter-cpp 0.23.4",
  "tree-sitter-graph",
  "tree-sitter-java 0.23.5",
  "tree-sitter-loader",
@@ -9029,8 +9032,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-cpp"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df2196ea9d47b4ab4a31b9297eaa5a5d19a0b121dceb9f118f6790ad0ab94743"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-graph"
 version = "0.12.2"
+source = "git+https://github.com/quentinLeDilavrec/tree-sitter-graph?rev=bcdb8e5bbb16636f47d155c0bdae5d19fd46a888#bcdb8e5bbb16636f47d155c0bdae5d19fd46a888"
 dependencies = [
  "log",
  "regex",
