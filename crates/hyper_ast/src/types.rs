@@ -98,6 +98,7 @@ role_impl!(
     Base => "base",
     Label => "label",
     Placement => "placement",
+    Length => "length",
 );
 
 #[allow(unused)]
