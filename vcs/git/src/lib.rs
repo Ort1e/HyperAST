@@ -1,5 +1,3 @@
-#![feature(test)]
-#![feature(extract_if)]
 #[cfg(feature = "impact")]
 pub mod allrefs;
 pub mod cpp;
@@ -28,18 +26,25 @@ pub mod tests;
 
 use git::BasicGitObject;
 use git2::Oid;
-use hyperast::{store::defaults::LabelIdentifier, utils::Bytes};
+use hyperast::{
+    store::{defaults::LabelIdentifier, nodes::legion::NodeStoreInner},
+    utils::Bytes,
+};
 
 mod type_store;
 
 pub use type_store::TStore;
 
-pub type SimpleStores = hyperast::store::SimpleStores<TStore>;
+pub type NodeStore<'a, 'b> = hyperast::store::nodes::legion::NodeStore<
+    &'a mut NodeStoreInner,
+    &'b mut hyperast::store::nodes::legion::DedupMap,
+>;
+
+// pub type SimpleStores<TS> = hyperast::store::SimpleStores<TS, NodeStoreInner>;
+pub type SimpleStores = hyperast::store::SimpleStores<crate::TStore>;
 
 // might also skip
 pub(crate) const PROPAGATE_ERROR_ON_BAD_CST_NODE: bool = false;
-
-pub(crate) const MAX_REFS: u32 = 10000; //4096;
 
 pub(crate) type DefaultMetrics =
     hyperast::tree_gen::SubTreeMetrics<hyperast::hashed::SyntaxNodeHashs<u32>>;
@@ -100,10 +105,18 @@ trait Processor<Acc: Accumulator, Oid = self::Oid, O = BasicGitObject> {
     fn post(&mut self, oid: Oid, acc: Acc) -> Option<Acc::Unlabeled>;
 }
 
-#[derive(Debug)]
 pub(crate) enum ParseErr {
     NotUtf8(std::str::Utf8Error),
     IllFormed,
+}
+
+impl std::fmt::Debug for ParseErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotUtf8(e) => e.fmt(f),
+            Self::IllFormed => write!(f, "IllFormed"),
+        }
+    }
 }
 
 impl From<std::str::Utf8Error> for ParseErr {
@@ -187,9 +200,9 @@ impl<Id, L, M> BasicDirAcc<Id, L, M> {
         label_id: L,
     ) -> M
     where
-        K: 'static + Sized + std::marker::Send + std::marker::Sync,
-        L: 'static + std::marker::Send + std::marker::Sync,
-        Id: 'static + std::marker::Send + std::marker::Sync,
+        K: hyperast::store::nodes::Compo,
+        L: hyperast::store::nodes::Compo,
+        Id: 'static + Send + Sync,
     {
         dyn_builder.add(interned_kind);
         dyn_builder.add(label_id);
@@ -198,7 +211,7 @@ impl<Id, L, M> BasicDirAcc<Id, L, M> {
         let children_names = self.children_names;
         assert_eq!(children_names.len(), children.len());
         if !children.is_empty() {
-            use hyperast::store::nodes::legion::compo::CS;
+            use hyperast::store::nodes::compo::CS;
             dyn_builder.add(CS(children_names.into_boxed_slice()));
             dyn_builder.add(CS(children.into_boxed_slice()));
         }
@@ -220,4 +233,5 @@ pub(crate) struct SuccessProcessing<N, D = Duration> {
     pub node: N,
 }
 
-pub(crate) type FileProcessingResult<N, D = Duration> = Result<SuccessProcessing<N, D>, FailedParsing<D>>;
+pub(crate) type FileProcessingResult<N, D = Duration> =
+    Result<SuccessProcessing<N, D>, FailedParsing<D>>;

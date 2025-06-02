@@ -6,12 +6,13 @@ mod tree_sitter_types_test;
 #[cfg(feature = "tsg")]
 mod tsg_hyperast;
 
-#[cfg(all(feature = "tsg", debug_assertions))]
+// #[cfg(all(feature = "tsg", debug_assertions))]
 mod tsqueries_java;
 
-// fn f() {
-//     tree_sitter_java::language().node_kind_count();
-// }
+#[cfg(all(feature = "impl", feature = "bevy"))]
+mod test_bevy;
+
+mod test_cases;
 
 #[test]
 fn type_test_generic_eq() {

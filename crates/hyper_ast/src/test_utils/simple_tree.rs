@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
-use num::{cast, NumCast, PrimInt, ToPrimitive};
+use num::{NumCast, PrimInt, ToPrimitive, cast};
 
 use crate::types::{
     HashKind, HyperType, LabelStore, Labeled, NodeId, NodeStore, NodeStoreMut, Stored, Typed,
@@ -300,13 +300,19 @@ impl crate::types::Tree for Tree {
 
 impl crate::types::ErasedHolder for Tree {
     fn unerase_ref<T: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&T> {
-        todo!()
+        if tid == std::any::TypeId::of::<Ty>() {
+            let t = &self.t;
+            let t = unsafe { std::mem::transmute(t) };
+            Some(t)
+        } else {
+            None
+        }
     }
 }
 
-impl<'a, T> crate::types::ErasedHolder for TreeRef<'_, T> {
+impl<'a, T: crate::types::Tree> crate::types::ErasedHolder for TreeRef<'_, T> {
     fn unerase_ref<TT: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&TT> {
-        todo!()
+        self.0.unerase_ref(tid)
     }
 }
 
@@ -667,17 +673,22 @@ macro_rules! tree {
 pub struct TStore;
 
 #[derive(Clone, Copy, std::hash::Hash, PartialEq, Eq, Debug)]
+#[repr(transparent)]
 #[cfg_attr(feature = "bevy_ecs", derive(bevy_ecs::prelude::Component))] // todo only for bevy
 pub struct Ty(u8);
 
 impl Display for Ty {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
 
 impl HyperType for Ty {
     fn as_shared(&self) -> crate::types::Shared {
+        todo!()
+    }
+
+    fn as_abstract(&self) -> crate::types::Abstracts {
         todo!()
     }
 
@@ -693,7 +704,7 @@ impl HyperType for Ty {
         todo!()
     }
 
-    fn generic_eq(&self, other: &dyn HyperType) -> bool
+    fn generic_eq(&self, _other: &dyn HyperType) -> bool
     where
         Self: 'static + Sized,
     {

@@ -7,8 +7,8 @@ use crate::auto::tsq_ser_meta::Conv;
 use crate::legion::TsQueryTreeGen;
 use crate::types::TStore;
 
-use hyperast::store::nodes::legion::NodeIdentifier;
 use hyperast::store::SimpleStores;
+use hyperast::store::nodes::legion::NodeIdentifier;
 use hyperast::types::{HyperAST, Labeled};
 
 mod preprocess;
@@ -18,7 +18,7 @@ pub mod recursive2;
 
 mod iterative;
 
-pub mod steped;
+// pub mod steped;
 
 #[doc(hidden)]
 pub mod utils;
@@ -34,6 +34,7 @@ pub struct PreparedMatcher<Ty, C = Conv<Ty>> {
     pub(crate) patterns: Arc<[Pattern<Ty>]>,
     pub captures: Arc<[Capture]>,
     pub(crate) quantifiers: Arc<[HashMap<usize, tree_sitter::CaptureQuantifier>]>,
+    #[allow(unused)] // TODO remove entire file, now there is the port of the original
     converter: C,
 }
 
@@ -329,11 +330,7 @@ pub fn ts_query2_with_label_hash(
     text: &[u8],
 ) -> Option<(legion::Entity, u32)> {
     let mut md_cache = Default::default();
-    let mut query_tree_gen = TsQueryTreeGen {
-        line_break: "\n".as_bytes().to_vec(),
-        stores,
-        md_cache: &mut md_cache,
-    };
+    let mut query_tree_gen = TsQueryTreeGen::new(stores, &mut md_cache);
 
     let tree = match crate::legion::tree_sitter_parse(text) {
         Ok(t) => t,

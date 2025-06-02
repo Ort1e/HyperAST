@@ -1,5 +1,5 @@
 use super::{
-    code_aspects::{remote_fetch_labels, remote_fetch_nodes_by_ids, HightLightHandle},
+    code_aspects::{HightLightHandle, remote_fetch_labels, remote_fetch_nodes_by_ids},
     long_tracking::TARGET_COLOR,
 };
 use crate::app::syntax_highlighting::{self as syntax_highlighter, syntax_highlighting_async};
@@ -15,7 +15,7 @@ use std::{
     fmt::Debug,
     num::NonZeroU32,
     ops::ControlFlow,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
     time::Duration,
 };
 mod cache;
@@ -84,8 +84,7 @@ pub(crate) mod store {
                         hyperast_gen_ts_java::types::Lang::make(raw);
                     t.into()
                 }
-                "hyperast_gen_ts_cpp::types_alt::Lang" | 
-                "hyperast_gen_ts_cpp::types::Lang" => {
+                "hyperast_gen_ts_cpp::types_alt::Lang" | "hyperast_gen_ts_cpp::types::Lang" => {
                     let t: &'static dyn hyperast::types::HyperType =
                         hyperast_gen_ts_cpp::types::Lang::make(raw);
                     t.into()
@@ -119,7 +118,10 @@ pub(crate) mod store {
     }
 
     impl<'b> hyperast::types::NodeStore<NodeIdentifier> for AcessibleFetchedHyperAST<'b> {
-        fn resolve(&self, id: &NodeIdentifier) -> <Self as hyperast::types::NLending<'_, NodeIdentifier>>::N {
+        fn resolve(
+            &self,
+            id: &NodeIdentifier,
+        ) -> <Self as hyperast::types::NLending<'_, NodeIdentifier>>::N {
             if let Some(r) = self.node_store.try_resolve(*id) {
                 r
             } else {
@@ -142,11 +144,15 @@ pub(crate) mod store {
         type I = LabelIdentifier;
 
         fn get_or_insert<U: Borrow<str>>(&mut self, _node: U) -> Self::I {
-            todo!("TODO remove this method from trait as it cannot be implemented on immutable/append_only label stores")
+            todo!(
+                "TODO remove this method from trait as it cannot be implemented on immutable/append_only label stores"
+            )
         }
 
         fn get<U: Borrow<str>>(&self, _node: U) -> Option<Self::I> {
-            todo!("TODO remove this method from trait as it cannot be implemented efficiently for all stores")
+            todo!(
+                "TODO remove this method from trait as it cannot be implemented efficiently for all stores"
+            )
         }
 
         fn resolve(&self, id: &Self::I) -> &str {
@@ -264,8 +270,7 @@ pub(crate) mod store {
                         hyperast_gen_ts_java::types::Lang::make(raw);
                     t.into()
                 }
-                "hyperast_gen_ts_cpp::types_alt::Lang" | 
-                "hyperast_gen_ts_cpp::types::Lang" => {
+                "hyperast_gen_ts_cpp::types_alt::Lang" | "hyperast_gen_ts_cpp::types::Lang" => {
                     let t: &'static dyn hyperast::types::HyperType =
                         hyperast_gen_ts_cpp::types::Lang::make(raw);
                     t.into()
@@ -867,7 +872,7 @@ impl<'a> FetchedViewImpl<'a> {
 
         let interact = show.header_returned.interact(egui::Sense::click_and_drag());
 
-        if interact.drag_released() {
+        if interact.drag_stopped() {
             node_menu(ui, interact, kind)
                 .or(show.body_returned)
                 .unwrap_or_default()
@@ -1140,7 +1145,7 @@ impl<'a> FetchedViewImpl<'a> {
                 // })
                 ;
                 let interact = monospace.interact(egui::Sense::click_and_drag());
-                action = if interact.drag_released() {
+                action = if interact.drag_stopped() {
                     node_menu(ui, interact, kind).unwrap_or_default()
                 } else if interact.clicked() {
                     Action::Clicked(self.path.to_vec())
@@ -1194,7 +1199,7 @@ impl<'a> FetchedViewImpl<'a> {
                 //     monospace.interact(egui::Sense::click()),
                 //     indent.inner.interact(egui::Sense::click()),
                 // );
-                action = if monospace.drag_released() {
+                action = if monospace.drag_stopped() {
                     node_menu(ui, monospace, kind).unwrap_or_default()
                 } else if monospace.clicked() {
                     Action::Clicked(self.path.to_vec())
@@ -1236,7 +1241,7 @@ impl<'a> FetchedViewImpl<'a> {
                     let interact =
                         ui.add(egui::Label::new(rt).sense(egui::Sense::click_and_drag()));
                     ui.label(label);
-                    if interact.drag_released() {
+                    if interact.drag_stopped() {
                         node_menu(ui, interact, kind).unwrap_or_default()
                     } else if interact.clicked() {
                         Action::Clicked(self.path.to_vec())
@@ -1524,9 +1529,8 @@ impl<'a> FetchedViewImpl<'a> {
             // wasm_rs_dbg::dbg!(self.focus);
             return ControlFlow::Break(());
         }
-        let hightlights: Vec<_> = self
-            .hightlights
-            .extract_if(|handle| {
+        let hightlights: Vec<_> =
+            vec_extract_if_polyfill::MakeExtractIf::extract_if(&mut self.hightlights, |handle| {
                 !handle.path.is_empty() && handle.path[0] == i
                 // if x.is_empty() {
                 //     None
@@ -1824,7 +1828,7 @@ impl<'a> FetchedViewImpl<'a> {
 fn node_menu(ui: &mut egui::Ui, interact: egui::Response, kind: AnyType) -> Option<Action> {
     let mut act = None;
     let popup_id = interact.id.with("popup");
-    if interact.secondary_clicked() || interact.double_clicked() || interact.drag_released() {
+    if interact.secondary_clicked() || interact.double_clicked() || interact.drag_stopped() {
         ui.memory_mut(|mem| mem.open_popup(popup_id));
     }
     egui::popup_below_widget(
@@ -1918,9 +1922,7 @@ mod hyperast_layouter {
         });
     }
 
-    use hyperast::types::{
-        self, HyperAST, HyperASTShared, HyperType, Childrn,
-    };
+    use hyperast::types::{self, Childrn, HyperAST, HyperType};
 
     impl<'store, 'b, IdN, HAST, const SPC: bool> Layouter<'store, 'b, IdN, HAST, SPC>
     where
@@ -1987,7 +1989,7 @@ mod hyperast_layouter {
                     let format = syntax_highlighter::TokenType::Keyword;
                     make_section(self.theme, out, format, *offset, end);
                     *offset = end;
-                    return Err(IndentedAlt::NoIndent)
+                    return Err(IndentedAlt::NoIndent);
                 }
                 (label, Some(children)) => {
                     if let Some(label) = label {
@@ -2011,7 +2013,7 @@ mod hyperast_layouter {
                             ind = self._compute(&id, &ind, out, offset).or_else(op)?;
                         }
                     }
-                    return Err(IndentedAlt::NoIndent)
+                    return Err(IndentedAlt::NoIndent);
                 }
                 (Some(label), None) => {
                     let s = self.stores.label_store().resolve(label);
@@ -2021,7 +2023,7 @@ mod hyperast_layouter {
                     let format = syntax_highlighter::TokenType::Punctuation;
                     make_section(self.theme, out, format, *offset, end);
                     *offset = end;
-                    return Err(IndentedAlt::NoIndent)
+                    return Err(IndentedAlt::NoIndent);
                 }
             };
         }
@@ -2087,8 +2089,8 @@ pub(crate) fn make_pp_code(
             }
         }
     }
-    use std::sync::atomic::Ordering;
     use std::sync::Mutex;
+    use std::sync::atomic::Ordering;
     #[derive(Default)]
     struct Layouter {
         ctx: egui::Context,

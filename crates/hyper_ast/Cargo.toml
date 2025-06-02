@@ -1,7 +1,7 @@
 [package]
 name = "hyperast"
-version = "0.2.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 description = "Temporal code analyses at scale"
 license = "GPL-3.0"
 
@@ -40,27 +40,37 @@ hecs = { version = "0.10.5", features = [], optional = true }
 bevy_ecs = { version = "0.14.2", default-features = false, optional = true }
 
 ref-cast = "1.0" # help with transparent unit structs, it makes proper layout assertions
+enumset = "1.0.12"
 
 frunk = { version = "0.4.3", optional = true }
 
 ## scripting
 mlua = { version = "0.9", features = ["luau"], optional = true }
-rhai = { version = "1.12.0", features = ["sync", "serde", "internals"], optional = true }
+rhai = { version = "1.12.0", features = [
+    "sync",
+    "serde",
+    "internals",
+], optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.3"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-jemallocator = { version = "0.5.0", optional = true }
-jemalloc-ctl = { version = "0.5.0", optional = true }
+jemallocator = { package = "tikv-jemallocator", version = "0.5.0", optional = true }
+jemalloc-ctl = { package = "tikv-jemalloc-ctl", version = "0.5.4", optional = true }
 
 serde = { version = "1", features = ["derive"], optional = true }
 
 [features]
-default = ["jemalloc", "legion",
-# "bevy_ecs", 
-# "hecs", 
-"native", "ts", "scripting"]
+default = [
+    "jemalloc",
+    "legion",
+    # "bevy_ecs",
+    # "hecs",
+    "native",
+    "ts",
+    "scripting",
+]
 legion = ["dep:legion"]
 hecs = ["dep:hecs"]
 bevy_ecs = ["dep:bevy_ecs", "dep:frunk"]
@@ -70,5 +80,5 @@ jemalloc = ["jemallocator", "jemalloc-ctl"]
 ts = ["dep:tree-sitter"]
 serialize = ["serde"]
 scripting = ["dep:rhai", "dep:mlua"]
-subtree-stats=[]
-fetched=[]
+subtree-stats = []
+fetched = []

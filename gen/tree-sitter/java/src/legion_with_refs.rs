@@ -1,26 +1,27 @@
 ///! fully compress all subtrees from a Java CST
 use crate::types::JavaEnabledTypeStore;
 use crate::{
-    types::{TStore, Type},
     TNode,
+    types::{TStore, Type},
 };
+use hyperast::store::nodes::compo;
+use hyperast::store::nodes::legion::DedupMap;
 use hyperast::store::{
     defaults::LabelIdentifier,
     nodes::{
-        legion::{dyn_builder, eq_node, HashedNodeRef},
         EntityBuilder,
+        legion::{HashedNodeRef, dyn_builder, eq_node},
     },
 };
 use hyperast::tree_gen::utils_ts::TTreeCursor;
 use hyperast::tree_gen::{
-    self,
+    self, Parents, PreResult, SubTreeMetrics, TreeGen, WithByteRange,
     parser::{Node, TreeCursor},
-    Parents, PreResult, SubTreeMetrics, TreeGen, WithByteRange,
 };
-use hyperast::tree_gen::{add_md_precomp_queries, NoOpMore, RoleAcc};
 use hyperast::tree_gen::{
     GlobalData as _, StatsGlobalData, TextedGlobalData, TotalBytesGlobalData as _,
 };
+use hyperast::tree_gen::{NoOpMore, RoleAcc, add_md_precomp_queries};
 use hyperast::{
     cyclomatic::Mcc,
     full::FullNode,
@@ -31,10 +32,10 @@ use hyperast::{
     filter::BloomSize,
     hashed::{self, SyntaxNodeHashs, SyntaxNodeHashsKinds},
     nodes::Space,
-    store::{nodes::legion::compo, nodes::DefaultNodeStore as NodeStore, SimpleStores},
+    store::{SimpleStores, nodes::DefaultNodeStore as NodeStore},
     tree_gen::{
-        compute_indentation, get_spacing, has_final_space, AccIndentation, Accumulator,
-        BasicAccumulator, Spaces, ZippedTreeGen,
+        AccIndentation, Accumulator, BasicAccumulator, Spaces, ZippedTreeGen, compute_indentation,
+        get_spacing, has_final_space,
     },
     types::LabelStore as LabelStoreTrait,
 };
@@ -56,9 +57,9 @@ pub use crate::impact::partial_analysis::PartialAnalysis;
 pub struct PartialAnalysis;
 impl PartialAnalysis {
     pub fn init<F: FnMut(&str) -> LabelIdentifier>(
-        kind: &Type,
-        label: Option<&str>,
-        mut intern_label: F,
+        _kind: &Type,
+        _label: Option<&str>,
+        mut _intern_label: F,
     ) -> Self {
         Self
     }
@@ -86,6 +87,7 @@ pub struct JavaTreeGen<
 > {
     // TODO replace with Arc<[u8]>
     pub line_break: Vec<u8>,
+    pub dedup: Option<&'stores mut DedupMap>,
     pub stores: &'stores mut S,
     pub md_cache: &'cache mut MDCache,
     pub more: More,
@@ -136,7 +138,7 @@ pub struct Local {
 }
 
 impl Local {
-    fn acc(self, acc: &mut Acc) {
+    fn acc<Scope>(self, acc: &mut Acc<Scope>) {
         if self.metrics.size_no_spaces > 0 {
             acc.no_space.push(self.compressed_node)
         }
@@ -164,7 +166,7 @@ impl Local {
     }
 }
 
-pub struct Acc {
+pub struct Acc<Scope = hyperast::scripting::Acc> {
     simple: BasicAccumulator<Type, NodeIdentifier>,
     no_space: Vec<NodeIdentifier>,
     labeled: bool,
@@ -177,23 +179,23 @@ pub struct Acc {
     indentation: Spaces,
     role: RoleAcc<crate::types::Role>,
     precomp_queries: PrecompQueries,
-    prepro: Option<hyperast::scripting::Acc>,
+    prepro: Option<Scope>,
 }
 
-impl Accumulator for Acc {
+impl<Scope> Accumulator for Acc<Scope> {
     type Node = FNode;
     fn push(&mut self, full_node: Self::Node) {
         full_node.local.acc(self);
     }
 }
 
-impl AccIndentation for Acc {
+impl<Scope> AccIndentation for Acc<Scope> {
     fn indentation(&self) -> &Spaces {
         &self.indentation
     }
 }
 
-impl WithByteRange for Acc {
+impl<Scope> WithByteRange for Acc<Scope> {
     fn has_children(&self) -> bool {
         !self.simple.children.is_empty()
     }
@@ -275,7 +277,8 @@ impl<'stores, 'cache, TS, More, const HIDDEN_NODES: bool> ZippedTreeGen
     for JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, HIDDEN_NODES>
 where
     TS: JavaEnabledTypeStore + 'static + hyperast::types::RoleStore<Role = Role, IdF = u16>,
-    More: tree_gen::Prepro<SimpleStores<TS>> + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc<More::Scope>>,
 {
     // type Node1 = SimpleNode1<NodeIdentifier, String>;
     type Stores = SimpleStores<TS>;
@@ -428,9 +431,9 @@ where
         if let Some(p) = &mut parent.prepro {
             // SAFETY: this side should be fine, issue when unerasing
             let store = unsafe { self.stores.erase_ts_unchecked() };
-            let child: hyperast::scripting::lua_scripting::SubtreeHandle<crate::types::TType> =
-                id.into();
-            p.acc(store, ty, child).unwrap();
+            let child: hyperast::scripting::SubtreeHandle<crate::types::TType> = id.into();
+            use hyperast::scripting::Accumulable;
+            p.acc(self.more.scripts(), store, ty, child).unwrap();
         }
     }
 
@@ -458,9 +461,10 @@ where
             if let Some(p) = &mut parent.prepro {
                 // SAFETY: this side should be fine, issue when unerasing
                 let store = unsafe { self.stores.erase_ts_unchecked() };
-                let child: hyperast::scripting::lua_scripting::SubtreeHandle<crate::types::TType> =
-                    id.into();
-                p.acc(store, parent.simple.kind, child).unwrap();
+                let child: hyperast::scripting::SubtreeHandle<crate::types::TType> = id.into();
+                use hyperast::scripting::Accumulable;
+                p.acc(self.more.scripts(), store, parent.simple.kind, child)
+                    .unwrap();
             }
         }
         let label = if acc.labeled {
@@ -484,6 +488,7 @@ impl<'stores, 'cache, TS: JavaEnabledTypeStore, X>
     pub fn new(stores: &'stores mut SimpleStores<TS>, md_cache: &'cache mut MDCache) -> Self {
         Self {
             line_break: "\n".as_bytes().to_vec(),
+            dedup: None,
             stores,
             md_cache,
             more: Default::default(),
@@ -500,27 +505,12 @@ impl<'stores, 'cache, 'acc, TS, More>
     ) -> JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, false> {
         JavaTreeGen {
             line_break: self.line_break,
+            dedup: self.dedup,
             stores: self.stores,
             md_cache: self.md_cache,
             more: self.more,
             _p: self._p,
         }
-    }
-}
-
-impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More, const HIDDEN_NODES: bool>
-    JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, HIDDEN_NODES>
-{
-    pub fn _generate_file<'b: 'stores>(
-        &mut self,
-        name: &[u8],
-        text: &'b [u8],
-        cursor: tree_sitter::TreeCursor,
-    ) -> FullNode<StatsGlobalData, Local>
-    where
-        More: tree_gen::Prepro<SimpleStores<TS>> + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
-    {
-        todo!()
     }
 }
 
@@ -534,6 +524,34 @@ impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More>
     ) -> Self {
         Self {
             line_break: "\n".as_bytes().to_vec(),
+            dedup: None,
+            stores,
+            md_cache,
+            more: more.into(),
+            _p: Default::default(),
+        }
+    }
+}
+impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More>
+    JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, true>
+{
+    /// Replaces the default dedup map when deriving different data.
+    /// Be cautious when replacing the default dedup map,
+    /// as it breaks the referential equlity being equivalent to the structural equality.
+    /// Otherwise, everything else is great !
+    /// In the future use multiple dedup maps when we can guarantee valid nesting,
+    ///   e.g., additional Derived Data on files can reuse subtrees of things inside files, but directories and files must be added without merging with the others
+    ///    (it should also be possible to compute markers to provide similar guarantees, e.g. a DD only on classes can reuse children that do not contain classes).
+    /// Could also make the eq consider the derived data, but to avoid breaking the incrementality we would still need some kind of marker for each context
+    pub fn with_preprocessing_and_dedup(
+        stores: &'stores mut SimpleStores<TS>,
+        dedup: &'stores mut DedupMap,
+        md_cache: &'cache mut MDCache,
+        more: More,
+    ) -> Self {
+        Self {
+            line_break: "\n".as_bytes().to_vec(),
+            dedup: Some(dedup),
             stores,
             md_cache,
             more: more.into(),
@@ -551,6 +569,7 @@ impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More, const HIDD
     ) -> JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, M, HIDDEN_NODES> {
         JavaTreeGen {
             line_break: self.line_break,
+            dedup: self.dedup,
             stores: self.stores,
             md_cache: self.md_cache,
             more: more,
@@ -560,7 +579,8 @@ impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More, const HIDD
 
     pub fn with_line_break(self, line_break: Vec<u8>) -> Self {
         JavaTreeGen {
-            line_break: self.line_break,
+            line_break: line_break,
+            dedup: self.dedup,
             stores: self.stores,
             md_cache: self.md_cache,
             more: self.more,
@@ -575,7 +595,8 @@ where
     TS: JavaEnabledTypeStore<Ty2 = Type>
         + 'static
         + hyperast::types::RoleStore<Role = Role, IdF = u16>,
-    More: tree_gen::Prepro<SimpleStores<TS>> + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc<More::Scope>>,
 {
     fn make_spacing(&mut self, spacing: Vec<u8>) -> Local {
         let kind = Type::Spaces;
@@ -606,7 +627,15 @@ where
             true
         };
 
-        let insertion = self.stores.node_store.prepare_insertion(&hashable, eq);
+        let dedup = self
+            .dedup
+            .as_mut()
+            .map_or(&mut self.stores.node_store.dedup, |x| &mut x.0);
+        let insertion = self
+            .stores
+            .node_store
+            .inner
+            .prepare_insertion(dedup, &hashable, eq);
 
         let mut hashs = hbuilder.build();
         hashs.structt = 0;
@@ -627,8 +656,11 @@ where
             }
             if More::USING {
                 let prepro = self.more.preprocessing(Type::Spaces).unwrap();
-                let subtr = hyperast::scripting::lua_scripting::Subtr(kind, &dyn_builder);
-                let ss = prepro.finish_with_label(&subtr, spacing).unwrap();
+                let subtr = hyperast::scripting::Subtr(kind, &dyn_builder);
+                use hyperast::scripting::Finishable;
+                let ss = prepro
+                    .finish_with_label(self.more.scripts(), &subtr, &spacing)
+                    .unwrap();
                 dyn_builder.add(ss);
             };
 
@@ -690,15 +722,16 @@ where
             if let Some(p) = &mut init.prepro {
                 // SAFETY: this side should be fine, issue when unerasing
                 let store = unsafe { self.stores.erase_ts_unchecked() };
-                let child: hyperast::scripting::lua_scripting::SubtreeHandle<crate::types::TType> =
-                    id.into();
-                p.acc(store, init.simple.kind, child).unwrap();
+                let child: hyperast::scripting::SubtreeHandle<crate::types::TType> = id.into();
+                use hyperast::scripting::Accumulable;
+                p.acc(self.more.scripts(), store, init.simple.kind, child)
+                    .unwrap();
             }
             global.right();
         }
         let mut stack = init.into();
 
-        self.gen(text, &mut stack, &mut xx, &mut global);
+        self.r#gen(text, &mut stack, &mut xx, &mut global);
 
         let mut acc = stack.finalize();
 
@@ -720,10 +753,10 @@ where
                 if let Some(p) = &mut acc.prepro {
                     // SAFETY: this side should be fine, issue when unerasing
                     let store = unsafe { self.stores.erase_ts_unchecked() };
-                    let child: hyperast::scripting::lua_scripting::SubtreeHandle<
-                        crate::types::TType,
-                    > = id.into();
-                    p.acc(store, acc.simple.kind, child).unwrap();
+                    let child: hyperast::scripting::SubtreeHandle<crate::types::TType> = id.into();
+                    use hyperast::scripting::Accumulable;
+                    p.acc(self.more.scripts(), store, acc.simple.kind, child)
+                        .unwrap();
                 }
             }
         }
@@ -755,11 +788,11 @@ where
         full_node
     }
 
-    fn build_ana(&mut self, kind: &Type) -> Option<PartialAnalysis> {
+    fn build_ana(&mut self, _kind: &Type) -> Option<PartialAnalysis> {
         if !ANA {
             return None;
         }
-        let label_store = &mut self.stores.label_store;
+        let _label_store = &mut self.stores.label_store;
         #[cfg(feature = "impact")]
         {
             build_ana(kind, label_store)
@@ -775,9 +808,10 @@ impl<'stores, 'cache, TS, More, const HIDDEN_NODES: bool> TreeGen
     for JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, HIDDEN_NODES>
 where
     TS: JavaEnabledTypeStore + 'static + hyperast::types::RoleStore<Role = Role, IdF = u16>,
-    More: tree_gen::Prepro<SimpleStores<TS>> + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
+    More: tree_gen::Prepro<SimpleStores<TS>>
+        + tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc<More::Scope>>,
 {
-    type Acc = Acc;
+    type Acc = Acc<More::Scope>;
     type Global = Global<'stores>;
     fn make(
         &mut self,
@@ -785,6 +819,8 @@ where
         mut acc: <Self as TreeGen>::Acc,
         label: Option<String>,
     ) -> <<Self as TreeGen>::Acc as Accumulator>::Node {
+        let stores = &mut self.stores;
+        let more = &mut self.more;
         let kind = acc.simple.kind;
         let interned_kind = TS::intern(kind);
         let own_line_count = label.as_ref().map_or(0, |l| {
@@ -798,18 +834,18 @@ where
             // Some notable type can contain very different labels,
             // they might benefit from a particular storing (like a blob storage, even using git's object database )
             // eg. acc.simple.kind == Type::Comment and acc.simple.kind.is_literal()
-            self.stores.label_store.get_or_insert(label.as_str())
+            stores.label_store.get_or_insert(label.as_str())
         });
         let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
 
+        let node_store = &mut stores.node_store;
         #[cfg(feature = "subtree-stats")]
-        self.stores
-            .node_store
-            .inner
-            .add_height_non_dedup(metrics.height);
+        (node_store.inner.stats()).add_height_non_dedup(metrics.height);
         // &metrics.hashs.structt,
 
-        let insertion = self.stores.node_store.prepare_insertion(hashable, eq);
+        let dedup = self.dedup.as_mut();
+        let dedup = dedup.map_or(&mut node_store.dedup, |x| &mut x.0);
+        let insertion = node_store.inner.prepare_insertion(dedup, hashable, eq);
 
         let local = if let Some(compressed_node) = insertion.occupied_id() {
             let md = self.md_cache.get(&compressed_node).unwrap();
@@ -832,23 +868,21 @@ where
                 &mut acc.ana,
                 &label,
                 &acc.simple.children,
-                &mut self.stores.label_store,
+                &mut stores.label_store,
                 &insertion,
             );
             let metrics = metrics.map_hashs(|h| h.build());
             let byte_len = (acc.end_byte - acc.start_byte).try_into().unwrap();
             let bytes_len = compo::BytesLen(byte_len);
             let vacant = insertion.vacant();
-            let node_store: &_ = vacant.1 .1;
+            let node_store: &_ = vacant.1.1;
             let stores = SimpleStores {
-                type_store: self.stores.type_store.clone(),
-                label_store: &self.stores.label_store,
+                type_store: stores.type_store.clone(),
+                label_store: &stores.label_store,
                 node_store,
             };
             if More::ENABLED {
-                acc.precomp_queries |=
-                    self.more
-                        .match_precomp_queries(stores, &acc, label.as_deref());
+                acc.precomp_queries |= more.match_precomp_queries(stores, &acc, label.as_deref());
             }
             let children_is_empty = acc.simple.children.is_empty();
 
@@ -866,9 +900,7 @@ where
                 //     &'static hyperast::store::nodes::legion::NodeStoreInner,
                 //     &'static hyperast::store::labels::LabelStore,
                 // > = unsafe { std::mem::transmute(stores.clone()) };
-                self.more
-                    .compute_tsg(stores, &acc, label.as_deref())
-                    .unwrap();
+                more.compute_tsg(stores, &acc, label.as_deref()).unwrap();
             }
 
             let current_role = Option::take(&mut acc.role.current);
@@ -883,7 +915,7 @@ where
                 acc.ana.as_ref(),
             );
             #[cfg(feature = "subtree-stats")]
-            vacant.1 .1.add_height_dedup(metrics.height, metrics.hashs);
+            (vacant.1.1.stats()).add_height_dedup(metrics.height, metrics.hashs);
             let hashs = metrics.add_md_metrics(&mut dyn_builder, children_is_empty);
             hashs.persist(&mut dyn_builder);
 
@@ -896,14 +928,15 @@ where
                 .add_primary(&mut dyn_builder, interned_kind, label_id);
 
             if More::USING {
-                let subtr = hyperast::scripting::lua_scripting::Subtr(kind, &dyn_builder);
-                let ss = if let Some(label) = label {
+                let subtr = hyperast::scripting::Subtr(kind, &dyn_builder);
+                use hyperast::scripting::Finishable;
+                let ss = if let Some(label) = &label {
                     acc.prepro
                         .unwrap()
-                        .finish_with_label(&subtr, label)
+                        .finish_with_label(more.scripts(), &subtr, label)
                         .unwrap()
                 } else {
-                    acc.prepro.unwrap().finish(&subtr).unwrap()
+                    acc.prepro.unwrap().finish(more.scripts(), &subtr).unwrap()
                 };
                 dyn_builder.add(ss);
             }
@@ -940,12 +973,13 @@ where
 }
 
 impl<
-        'stores,
-        'cache,
-        TS: JavaEnabledTypeStore + 'static + hyperast::types::RoleStore<Role = Role, IdF = u16>,
-        More: tree_gen::Prepro<SimpleStores<TS>> + for<'s> tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc>,
-        const HIDDEN_NODES: bool,
-    > NodeStoreExt<HashedNode>
+    'stores,
+    'cache,
+    TS: JavaEnabledTypeStore + 'static + hyperast::types::RoleStore<Role = Role, IdF = u16>,
+    More: tree_gen::Prepro<SimpleStores<TS>, Scope = hyperast::scripting::Acc>
+        + tree_gen::PreproTSG<SimpleStores<TS>, Acc = Acc<More::Scope>>,
+    const HIDDEN_NODES: bool,
+> NodeStoreExt<HashedNode>
     for JavaTreeGen<'stores, 'cache, TS, SimpleStores<TS>, More, HIDDEN_NODES>
 where
     TS::Ty: TypeTrait,
@@ -1039,7 +1073,7 @@ where
             acc.push(full_node);
         }
         let post = {
-            let node_store = &mut self.stores.node_store;
+            let node_store = &mut self.stores.node_store.inner;
             let label_store = &mut self.stores.label_store;
             let label_id = l;
             let label = label_id.map(|l| label_store.resolve(&l));
@@ -1055,7 +1089,11 @@ where
 
             let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
 
-            let insertion = node_store.prepare_insertion(&hashable, eq);
+            let dedup = self
+                .dedup
+                .as_mut()
+                .map_or(&mut self.stores.node_store.dedup, |x| &mut x.0);
+            let insertion = node_store.prepare_insertion(dedup, &hashable, eq);
 
             let local = if let Some(id) = insertion.occupied_id() {
                 let md = self.md_cache.get(&id).unwrap();
@@ -1076,7 +1114,7 @@ where
                 let bytes_len = compo::BytesLen((acc.end_byte - acc.start_byte) as u32);
 
                 let vacant = insertion.vacant();
-                let node_store: &_ = vacant.1 .1;
+                let node_store: &_ = vacant.1.1;
                 let stores = SimpleStores {
                     type_store: self.stores.type_store.clone(),
                     node_store,

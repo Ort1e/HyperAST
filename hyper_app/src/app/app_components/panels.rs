@@ -133,28 +133,28 @@ impl crate::HyperApp {
                 }
             });
         if create_q {
-                self.data.queries.push(crate::app::QueryData {
-                    name: "precomp".to_string(),
-                    lang: self.data.queries[id as usize].lang.to_string(),
-                    query: egui_addon::code_editor::CodeEditor::new(
-                        egui_addon::code_editor::EditorInfo::default().copied(),
-                        r#"translation_unit"#.to_string(),
-                    ),
-                    ..Default::default()
-                });
-                let qid = self.data.queries.len() as u16 - 1;
-                let query = &mut self.data.queries[id as usize];
-                query.precomp = Some(qid);
-                let tid = self.tabs.len() as u16;
-                self.tabs.push(crate::app::Tab::LocalQuery(qid));
-                let child = self.tree.tiles.insert_pane(tid);
-                match self.tree.tiles.get_mut(self.tree.root.unwrap()) {
-                    Some(egui_tiles::Tile::Container(c)) => c.add_child(child),
-                    _ => todo!(),
-                };
-            }
+            self.data.queries.push(crate::app::QueryData {
+                name: "precomp".to_string(),
+                lang: self.data.queries[id as usize].lang.to_string(),
+                query: egui_addon::code_editor::CodeEditor::new(
+                    egui_addon::code_editor::EditorInfo::default().copied(),
+                    r#"translation_unit"#.to_string(),
+                ),
+                ..Default::default()
+            });
+            let qid = self.data.queries.len() as u16 - 1;
             let query = &mut self.data.queries[id as usize];
-            egui::Slider::new(&mut query.commits, 1..=100)
+            query.precomp = Some(qid);
+            let tid = self.tabs.len() as u16;
+            self.tabs.push(crate::app::Tab::LocalQuery(qid));
+            let child = self.tree.tiles.insert_pane(tid);
+            match self.tree.tiles.get_mut(self.tree.root.unwrap()) {
+                Some(egui_tiles::Tile::Container(c)) => c.add_child(child),
+                _ => todo!(),
+            };
+        }
+        let query = &mut self.data.queries[id as usize];
+        egui::Slider::new(&mut query.commits, 1..=100)
             .text("#commits")
             .clamping(egui::SliderClamping::Never)
             .ui(ui)
@@ -169,13 +169,6 @@ impl crate::HyperApp {
             .clamping(egui::SliderClamping::Never)
             .ui(ui)
             .on_hover_text("Maximum time to match each commit.");
-        ui.add_enabled(
-            false,
-            egui::Slider::new(&mut query.timeout, 1..=5000)
-                .text("commit timeout")
-                .clamping(egui::SliderClamping::Never),
-        )
-        .on_hover_text("Maximum time to match all commit.");
         let compute_button = ui.add_enabled(false, egui::Button::new("Compute All"));
         let q_res_ids = &mut query.results;
         if self.data.selected_code_data.commit_count() != q_res_ids.len() {
@@ -440,7 +433,10 @@ impl crate::HyperApp {
                 };
                 let max_matches = query_data.max_matches;
                 let timeout = query_data.timeout;
-                let precomp = query_data.precomp.clone().map(|id| &self.data.queries[id as usize]);
+                let precomp = query_data
+                    .precomp
+                    .clone()
+                    .map(|id| &self.data.queries[id as usize]);
                 let precomp = precomp.map(|p| p.query.as_ref().to_string());
                 let prom = querying::remote_compute_query_aux(
                     ui.ctx(),
@@ -531,7 +527,7 @@ impl crate::HyperApp {
         egui::TopBottomPanel::top("left_panel_top_bar")
             .min_height(3.0 * re_ui::DesignTokens::title_bar_height())
             .frame(egui::Frame {
-                inner_margin: egui::Margin::symmetric(re_ui::DesignTokens::view_padding(), 0.0),
+                inner_margin: egui::Margin::symmetric(re_ui::DesignTokens::view_padding(), 0),
                 ..Default::default()
             })
             .show_inside(ui, |ui| self.show_actions(ui));
@@ -625,7 +621,7 @@ impl crate::HyperApp {
                         self.save_interval = std::time::Duration::ZERO;
                     }
                     let resp = &egui::widgets::Slider::new(&mut self.data.max_fetch, MIN..=MAX)
-                        .clamp_to_range(false)
+                        .clamping(egui::SliderClamping::Never)
                         .custom_formatter(|n, _| {
                             let n = n as i64;
                             let days = n / (60 * 60 * 24);

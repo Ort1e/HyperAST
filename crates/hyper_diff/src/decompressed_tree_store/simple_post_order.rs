@@ -1,8 +1,8 @@
 use super::{
-    basic_post_order::{BasicPOSlice, BasicPostOrder},
     ContiguousDescendants, DecendantsLending, DecompressedParentsLending, DecompressedTreeStore,
     DecompressedWithParent, DecompressedWithSiblings, FullyDecompressedTreeStore, PostOrder,
     ShallowDecompressedTreeStore,
+    basic_post_order::{BasicPOSlice, BasicPostOrder},
 };
 use crate::matchers::Decompressible;
 use hyperast::PrimInt;
@@ -10,10 +10,10 @@ use hyperast::{
     position::Position,
     types::{
         self, Children, Childrn, HyperAST, HyperASTShared, HyperType, LabelStore, Labeled,
-        NodeStore, Stored, WithChildren, WithSerialization,
+        NodeStore, WithChildren, WithSerialization,
     },
 };
-use num_traits::{cast, one, zero, ToPrimitive, Zero};
+use num_traits::{ToPrimitive, Zero, cast, one, zero};
 use std::{collections::HashMap, fmt::Debug, hash::Hash, ops::Deref};
 
 pub struct SimplePostOrder<IdN, IdD> {
@@ -46,14 +46,6 @@ impl<HAST: HyperAST + Copy, IdD> Decompressible<HAST, &SimplePostOrder<HAST::IdN
     }
 }
 
-impl<HAST: HyperAST + Copy, IdD> Decompressible<HAST, SimplePostOrder<HAST::IdN, IdD>> {
-    pub(crate) fn as_basic(&self) -> Decompressible<HAST, &BasicPostOrder<HAST::IdN, IdD>> {
-        let hyperast = self.hyperast;
-        let decomp = &self.basic;
-        Decompressible { hyperast, decomp }
-    }
-}
-
 /// WIP WithParent (need some additional offset computations)
 pub struct SimplePOSlice<'a, IdN, IdD> {
     pub(super) basic: BasicPOSlice<'a, IdN, IdD>,
@@ -65,18 +57,28 @@ impl<'a, IdN, IdD> Clone for SimplePOSlice<'a, IdN, IdD> {
     fn clone(&self) -> Self {
         Self {
             basic: self.basic.clone(),
-            id_parent: self.id_parent.clone(),
+            id_parent: self.id_parent,
         }
     }
 }
 
 impl<'a, IdN, IdD> Copy for SimplePOSlice<'a, IdN, IdD> {}
 
-impl<'a, T: Stored, IdD> Deref for SimplePOSlice<'a, T, IdD> {
-    type Target = BasicPOSlice<'a, T, IdD>;
+impl<'a, IdN, IdD> Deref for SimplePOSlice<'a, IdN, IdD> {
+    type Target = BasicPOSlice<'a, IdN, IdD>;
 
     fn deref(&self) -> &Self::Target {
         &self.basic
+    }
+}
+
+impl<'a, HAST: HyperAST + Copy, IdD> Decompressible<HAST, SimplePOSlice<'a, HAST::IdN, IdD>> {
+    pub(crate) fn as_basic(
+        &self,
+    ) -> Decompressible<HAST, super::basic_post_order::BasicPOSlice<'a, HAST::IdN, IdD>> {
+        let hyperast = self.hyperast;
+        let decomp = self.basic;
+        Decompressible { hyperast, decomp }
     }
 }
 
@@ -295,7 +297,7 @@ impl<IdN, IdD: PrimInt> SimplePostOrder<IdN, IdD> {
                 });
             } else {
                 let curr_idx = cast(id_compressed.len()).unwrap();
-                let value = if l.is_some() {
+                let value = if l.is_none() {
                     curr_idx
                 } else {
                     for x in children {
@@ -490,11 +492,7 @@ where
             return None;
         }
         let sib = lld - num_traits::one();
-        if &sib < p_lld {
-            None
-        } else {
-            Some(sib)
-        }
+        if &sib < p_lld { None } else { Some(sib) }
     }
 }
 
@@ -559,14 +557,12 @@ where
     HAST::IdN: Debug,
     for<'t> <HAST as types::AstLending<'t>>::RT: WithSerialization,
 {
-    pub fn position<'b>(&mut self, c: &IdD) -> &Position
-    {
+    pub fn position<'b>(&mut self, c: &IdD) -> &Position {
         let stores = self.ds.hyperast;
         if self.cache.contains_key(&c) {
             return self.cache.get(&c).unwrap();
         } else if let Some(p) = self.ds.parent(c) {
             let id = self.ds.original(&p);
-            let p_r = stores.node_store().resolve(&id);
             let p_t = stores.resolve_type(&id);
             if p_t.is_directory() {
                 let ori = self.ds.original(&c);
@@ -696,14 +692,12 @@ where
     F: Fn(U, HAST::IdN) -> U,
     G: Fn(U, HAST::IdN) -> U,
 {
-    pub fn position<'b>(&mut self, c: &IdD) -> &U
-    {
+    pub fn position<'b>(&mut self, c: &IdD) -> &U {
         let stores = self.ds.hyperast;
         if self.cache.contains_key(&c) {
             return self.cache.get(&c).unwrap();
         } else if let Some(p) = self.ds.parent(c) {
             let id = self.ds.original(&p);
-            let p_r = stores.node_store().resolve(&id);
             let p_t = stores.resolve_type(&id);
             if p_t.is_directory() {
                 let ori = self.ds.original(&c);

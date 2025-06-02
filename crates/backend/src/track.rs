@@ -1,38 +1,39 @@
 use std::{fmt::Debug, thread::sleep, time::Duration};
 
-use axum::{response::IntoResponse, Json};
+use axum::{Json, response::IntoResponse};
 use enumset::{EnumSet, EnumSetType};
+use hyper_diff::{
+    decompressed_tree_store::{
+        DecompressedWithParent, LazyDecompressedTreeStore, ShallowDecompressedTreeStore,
+    },
+    matchers::{
+        Mapper,
+        mapping_store::{self, MonoMappingStore, MultiMappingStore},
+    },
+};
 use hyperast::{
+    PrimInt,
     position::{
         compute_position, compute_position_and_nodes, compute_position_with_no_spaces,
         compute_range, path_with_spaces,
         position_accessors::{self, WithOffsets, WithPreOrderPath},
         resolve_range,
     },
-    store::{defaults::NodeIdentifier, nodes::legion::HashedNodeRef, SimpleStores},
-    types::{self, HyperAST, Childrn, NodeStore, WithChildren, WithHashs, WithStats},
-    PrimInt,
+    store::{SimpleStores, defaults::NodeIdentifier, nodes::legion::HashedNodeRef},
+    types::{self, Childrn, HyperAST, NodeStore, WithChildren, WithHashs, WithStats},
 };
 use hyperast_vcs_git::{
-    git::Repo, multi_preprocessed, preprocessed::child_at_path_tracked,
-    processing::ConfiguredRepoTrait, TStore,
-};
-use hyper_diff::{
-    decompressed_tree_store::{
-        DecompressedWithParent, LazyDecompressedTreeStore, ShallowDecompressedTreeStore,
-    },
-    matchers::{
-        mapping_store::{self, MonoMappingStore, MultiMappingStore},
-        Mapper,
-    },
+    TStore, git::Repo, multi_preprocessed, preprocessed::child_at_path_tracked,
+    processing::ConfiguredRepoTrait,
 };
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::deserialize_bool_from_anything;
 use tokio::time::Instant;
 
 use crate::{
+    MappingAloneCache, PartialDecompCache, SharedState,
     changes::{self, DstChanges, SrcChanges},
-    matching, no_space, MappingAloneCache, PartialDecompCache, SharedState,
+    matching, no_space,
 };
 
 #[derive(Deserialize, Clone, Debug)]
@@ -581,7 +582,6 @@ pub(crate) fn track_code_at_path_with_changes(
         path,
     } = path;
     let repo_spec = hyperast_vcs_git::git::Forge::Github.repo(user, name);
-    let configs = state.clone();
     let repo_handle = state
         .repositories
         .write()
@@ -656,7 +656,7 @@ pub(crate) fn track_code_at_path_with_changes(
                 return Ok(tracking_result.with_changes(changes));
             }
             MappingResult::Missing { src, fallback } => {
-        dbg!();
+                dbg!();
                 let changes = changes::added_deleted(state, &repository, dst_oid, ori_oid.unwrap())
                     .map_err(|err| TrackingError {
                         compute_time: now.elapsed().as_secs_f64(),
@@ -731,7 +731,7 @@ pub(crate) fn track_code_at_path_with_changes(
                     unreachable!()
                 } else {
                     let next = &next[0]; // TODO stop on branching ?
-                                         // dbg!(next);
+                    // dbg!(next);
                     path = next.path.clone();
                     commit = next.commit.clone();
                 }
@@ -974,7 +974,6 @@ fn track_aux(
         .unwrap();
     let dst_tr = commit_dst.ast_root;
     let stores = &repositories.processor.main_stores;
-    let node_store = &stores.node_store;
 
     // let size = node_store.resolve(src_tr).size();
     log::debug!("tracking {file}");
@@ -1068,13 +1067,11 @@ fn track_aux2(
         let src = src.with_store(stores);
         // let no_spaces_path_to_target: offsets::Offsets<_, position::tags::TopDownNoSpace> =
         //     src.compute_no_spaces::<_, offsets::Offsets<_, _>>();
-        let (pos, path): (
-            position::Position,
-            offsets_and_nodes::SolvedStructuralPosition<_, _, position::tags::TopDownNoSpace>,
-        ) = src.compute_no_spaces::<_, position::CompoundPositionPreparer<
-            position::Position,
-            offsets_and_nodes::StructuralPosition<_, _, position::tags::TopDownNoSpace>,
-        >>();
+        let position::CompoundPositionPreparer(pos, path) = src
+            .compute_no_spaces::<_, position::CompoundPositionPreparer<
+                position::Position,
+                offsets_and_nodes::StructuralPosition<_, _, position::tags::TopDownNoSpace>,
+            >>();
         // no_spaces_path_to_target.into()
         let (node, path) = path.into();
         (pos, node, path)
@@ -1106,5 +1103,6 @@ fn track_aux2(
 
 mod compute;
 mod more;
+
 #[cfg(feature = "experimental")]
 mod my_dash;

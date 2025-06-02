@@ -4,33 +4,31 @@ use std::{fmt::Debug, vec};
 use legion::world::EntryRef;
 use tuples::CombinConcat;
 
+use hyperast::store::nodes::compo::{self, CS, NoSpacesCS};
 use hyperast::{
     filter::BloomSize,
     full::FullNode,
     hashed::{self, IndexingHashBuilder, MetaDataHashsBuilder, SyntaxNodeHashs},
     nodes::Space,
     store::{
-        nodes::{
-            legion::{
-                compo::{self, NoSpacesCS, CS}, eq_node, NodeIdentifier, PendingInsert
-            },
-            DefaultNodeStore as NodeStore,
-        },
         SimpleStores,
+        nodes::{
+            DefaultNodeStore as NodeStore,
+            legion::{NodeIdentifier, PendingInsert, eq_node},
+        },
     },
     tree_gen::{
-        compute_indentation, get_spacing, has_final_space,
-        parser::{Node as _, TreeCursor},
         AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents,
         PreResult, SpacedGlobalData, Spaces, SubTreeMetrics, TextedGlobalData, TreeGen,
-        WithByteRange, ZippedTreeGen,
+        WithByteRange, ZippedTreeGen, compute_indentation, get_spacing, has_final_space,
+        parser::{Node as _, TreeCursor},
     },
     types::LabelStore as _,
 };
 
 use crate::{
-    types::{TStore, Type, XmlEnabledTypeStore},
     TNode,
+    types::{TStore, Type, XmlEnabledTypeStore},
 };
 
 pub type LabelIdentifier = hyperast::store::labels::DefaultLabelIdentifier;
@@ -42,15 +40,10 @@ pub struct XmlTreeGen<'stores, TS = TStore> {
 
 pub type Global<'a> = SpacedGlobalData<'a>;
 
-/// TODO temporary placeholder
-#[derive(Debug, Clone, Default)]
-pub struct PartialAnalysis {}
-
 #[derive(Debug, Clone)]
 pub struct Local {
     pub compressed_node: NodeIdentifier,
     pub metrics: SubTreeMetrics<SyntaxNodeHashs<u32>>,
-    pub ana: Option<PartialAnalysis>,
 }
 
 impl Local {
@@ -72,7 +65,6 @@ pub struct Acc {
     start_byte: usize,
     end_byte: usize,
     metrics: SubTreeMetrics<SyntaxNodeHashs<u32>>,
-    ana: Option<PartialAnalysis>,
     padding_start: usize,
     indentation: Spaces,
 }
@@ -162,7 +154,6 @@ impl<'stores, TS: XmlEnabledTypeStore> ZippedTreeGen for XmlTreeGen<'stores, TS>
             &parent_indentation,
         );
         let labeled = node.has_label();
-        let ana = self.build_ana(&kind);
         Acc {
             simple: BasicAccumulator {
                 kind,
@@ -173,7 +164,6 @@ impl<'stores, TS: XmlEnabledTypeStore> ZippedTreeGen for XmlTreeGen<'stores, TS>
             start_byte: node.start_byte(),
             end_byte: node.end_byte(),
             metrics: Default::default(),
-            ana,
             padding_start: 0,
             indentation: indent,
         }
@@ -223,7 +213,6 @@ impl<'stores, TS: XmlEnabledTypeStore> ZippedTreeGen for XmlTreeGen<'stores, TS>
             start_byte: node.start_byte(),
             end_byte: node.end_byte(),
             metrics: Default::default(),
-            ana: self.build_ana(&kind),
             padding_start: global.sum_byte_length(),
             indentation: indent,
             simple: BasicAccumulator {
@@ -282,10 +271,7 @@ impl<'a, TS> XmlTreeGen<'a, TS> {
     }
 }
 impl<'a, TS: XmlEnabledTypeStore> XmlTreeGen<'a, TS> {
-    fn make_spacing(
-        &mut self,
-        spacing: Vec<u8>,
-    ) -> Local {
+    fn make_spacing(&mut self, spacing: Vec<u8>) -> Local {
         let kind = Type::Spaces;
         let interned_kind = TS::intern(kind);
         let bytes_len = spacing.len();
@@ -339,7 +325,6 @@ impl<'a, TS: XmlEnabledTypeStore> XmlTreeGen<'a, TS> {
                 size_no_spaces: 0,
                 line_count,
             },
-            ana: Default::default(),
         }
     }
 
@@ -377,7 +362,7 @@ impl<'a, TS: XmlEnabledTypeStore> XmlTreeGen<'a, TS> {
         }
         let mut stack = init.into();
 
-        self.gen(text, &mut stack, &mut xx, &mut global);
+        self.r#gen(text, &mut stack, &mut xx, &mut global);
 
         let mut acc = stack.finalize();
 
@@ -399,10 +384,6 @@ impl<'a, TS: XmlEnabledTypeStore> XmlTreeGen<'a, TS> {
         let label = Some(std::str::from_utf8(name).unwrap().to_owned());
         let full_node = self.make(&mut global, acc, label);
         full_node
-    }
-
-    fn build_ana(&mut self, _kind: &Type) -> Option<PartialAnalysis> {
-        None
     }
 }
 
@@ -442,7 +423,6 @@ impl<'stores, TS: XmlEnabledTypeStore> TreeGen for XmlTreeGen<'stores, TS> {
         // };
 
         let local = if let Some(compressed_node) = insertion.occupied_id() {
-            let ana = None;
             let hashs = hbuilder.build();
             let metrics = SubTreeMetrics {
                 size,
@@ -454,15 +434,12 @@ impl<'stores, TS: XmlEnabledTypeStore> TreeGen for XmlTreeGen<'stores, TS> {
             Local {
                 compressed_node,
                 metrics,
-                ana,
             }
         } else {
-            let ana = None;
             let hashs = hbuilder.build();
             let bytes_len = compo::BytesLen((acc.end_byte - acc.start_byte).try_into().unwrap());
             let compressed_node = compress(
                 label_id,
-                &ana,
                 interned_kind,
                 acc.simple,
                 acc.no_space,
@@ -484,7 +461,6 @@ impl<'stores, TS: XmlEnabledTypeStore> TreeGen for XmlTreeGen<'stores, TS> {
             Local {
                 compressed_node,
                 metrics,
-                ana,
             }
         };
 
@@ -498,7 +474,6 @@ impl<'stores, TS: XmlEnabledTypeStore> TreeGen for XmlTreeGen<'stores, TS> {
 
 fn compress<Ty: std::marker::Send + std::marker::Sync + 'static>(
     label_id: Option<LabelIdentifier>,
-    _ana: &Option<PartialAnalysis>,
     interned_kind: Ty,
     simple: BasicAccumulator<Type, NodeIdentifier>,
     no_space: Vec<NodeIdentifier>,
@@ -644,12 +619,3 @@ fn compress<Ty: std::marker::Send + std::marker::Sync + 'static>(
 //         parent_indent,
 //     )
 // }
-/// TODO partialana
-impl PartialAnalysis {
-    pub(crate) fn refs_count(&self) -> usize {
-        0 //TODO
-    }
-    pub(crate) fn refs(&self) -> impl Iterator<Item = Vec<u8>> {
-        vec![vec![0_u8]].into_iter() //TODO
-    }
-}

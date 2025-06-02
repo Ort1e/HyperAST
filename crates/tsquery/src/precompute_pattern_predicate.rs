@@ -4,15 +4,15 @@ use hyperast::{
 };
 
 #[derive(Default)]
-pub struct PreparedQuerying<Q, HAST, Acc>(Q, std::marker::PhantomData<(HAST, Acc)>);
+pub struct PreparedQuerying<Q, TS, Acc>(Q, std::marker::PhantomData<(TS, Acc)>);
 
-impl<'a, HAST, Acc> From<&'a crate::Query> for PreparedQuerying<&'a crate::Query, HAST, Acc> {
+impl<'a, TS, Acc> From<&'a crate::Query> for PreparedQuerying<&'a crate::Query, TS, Acc> {
     fn from(value: &'a crate::Query) -> Self {
         Self(value, Default::default())
     }
 }
 
-impl<Q, HAST, Acc> std::ops::Deref for PreparedQuerying<Q, HAST, &Acc> {
+impl<Q, TS, Acc> std::ops::Deref for PreparedQuerying<Q, TS, &Acc> {
     type Target = Q;
 
     fn deref(&self) -> &Self::Target {
@@ -25,11 +25,16 @@ where
     HAST::TS: ETypeStore,
 {
     const USING: bool = false;
+    type Scope = hyperast::scripting::Acc;
 
     fn preprocessing(
         &self,
         _ty: <HAST::TS as ETypeStore>::Ty2,
-    ) -> Result<hyperast::scripting::Acc, String> {
+    ) -> Result<Self::Scope, <Self::Scope as hyperast::scripting::Scriptable>::Error> {
+        unimplemented!()
+    }
+
+    fn scripts(&self) -> &<Self::Scope as hyperast::scripting::Scriptable>::Scripts {
         unimplemented!()
     }
 }

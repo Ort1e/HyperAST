@@ -1,16 +1,18 @@
-use super::{parser::Visibility, utils_ts::*, zipped::Has, P};
+#![allow(unused)]
+use super::{P, parser::Visibility, utils_ts::*, zipped::Has};
+use crate::store::nodes::compo;
 use crate::store::{
-    nodes::{
-        legion::{compo, dyn_builder, eq_node, NodeIdentifier},
-        DefaultNodeStore as NodeStore,
-    },
     SimpleStores,
+    nodes::{
+        DefaultNodeStore as NodeStore,
+        legion::{NodeIdentifier, dyn_builder, eq_node},
+    },
 };
 use crate::tree_gen::{
-    self, has_final_space,
-    parser::{Node as _, TreeCursor},
-    Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents, PreResult,
+    self, Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents, PreResult,
     SpacedGlobalData, SubTreeMetrics, TextedGlobalData, TotalBytesGlobalData as _, WithByteRange,
+    has_final_space,
+    parser::{Node as _, TreeCursor},
 };
 use crate::{
     filter::BloomSize,
@@ -122,33 +124,12 @@ impl<T> tree_gen::WithChildren<NodeIdentifier> for Acc<T> {
     }
 }
 
-impl<T> tree_gen::WithRole<crate::types::Role> for Acc<T> {
-    fn role_at(&self, o: usize) -> Option<crate::types::Role> {
-        todo!()
-        // self.role
-        //     .offsets
-        //     .iter()
-        //     .position(|x| *x as usize == o)
-        //     .and_then(|x| self.role.roles.get(x))
-        //     .cloned()
-    }
-}
-
 impl<'acc, T> tree_gen::WithLabel for &'acc Acc<T> {
     type L = &'acc str;
 }
 
 impl<'store, 'cache, 's, TS: TsEnableTS>
-    TsTreeGen<
-        'store,
-        'cache,
-        TS,
-        tree_gen::NoOpMore<
-            TS,
-            Acc<TS::Ty2>,
-        >,
-        true,
-    >
+    TsTreeGen<'store, 'cache, TS, tree_gen::NoOpMore<TS, Acc<TS::Ty2>>, true>
 where
     TS::Ty2: TsType,
 {
@@ -227,7 +208,7 @@ where
 
     fn stores(&mut self) -> &mut Self::Stores;
 
-    fn gen(
+    fn r#gen(
         &mut self,
         text: &Self::Text,
         stack: &mut Parents<Self::Acc>,
@@ -248,7 +229,7 @@ where
     type Node<'b> = TNode<'b>;
     type TreeCursor<'b> = TTreeCursor<'b, HIDDEN_NODES>;
 
-    fn gen(
+    fn r#gen(
         &mut self,
         text: &Self::Text,
         stack: &mut Parents<Self::Acc>,
@@ -321,7 +302,6 @@ where
             if let Some(r) = cursor.0.field_name() {
                 match TryInto::<crate::types::Role>::try_into(r) {
                     Ok(r) => {
-                        // acc.role.current = Some(r);
                         log::warn!("not retrieving roles");
                     }
                     Err(_) => log::error!("cannot convert role: {}", r),
@@ -475,7 +455,7 @@ where
         }
         let mut stack = init.into();
 
-        self.gen(text, &mut stack, &mut xx, &mut global);
+        self.r#gen(text, &mut stack, &mut xx, &mut global);
 
         let mut acc = stack.finalize();
 

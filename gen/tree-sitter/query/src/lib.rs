@@ -4,6 +4,9 @@ pub mod types;
 pub mod legion;
 
 #[cfg(feature = "impl")]
+pub mod no_fmt_legion;
+
+#[cfg(feature = "impl")]
 #[cfg(test)]
 pub mod tests;
 
@@ -25,6 +28,8 @@ pub mod iter;
 
 pub mod auto;
 
+pub mod code2query;
+
 pub fn prepare_matcher<Ty>(query: &str) -> crate::search::PreparedMatcher<Ty, Conv<Ty>>
 where
     Ty: std::fmt::Debug,
@@ -32,8 +37,7 @@ where
     for<'a> <Ty as TryFrom<&'a str>>::Error: std::fmt::Debug,
 {
     let (query_store, query) = crate::search::ts_query(query.as_bytes());
-    let prepared_matcher =
-        crate::search::PreparedMatcher::<Ty, Conv<Ty>>::new(query_store.with_ts(), query);
+    let prepared_matcher = crate::search::PreparedMatcher::<Ty, Conv<Ty>>::new(&query_store, query);
     prepared_matcher
 }
 
@@ -178,6 +182,11 @@ where
         }
         None
     }
+}
+
+#[cfg(feature = "impl")]
+pub fn tree_sitter_parse(text: &[u8]) -> Result<tree_sitter::Tree, tree_sitter::Tree> {
+    hyperast::tree_gen::utils_ts::tree_sitter_parse(text, &crate::language())
 }
 
 #[cfg(feature = "impl")]

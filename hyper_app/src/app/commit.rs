@@ -41,12 +41,8 @@ impl CommitMetadata {
         if ui.available_width() > 300.0 {
             ui.label(format!("Parents: {}", self.parents.join(" + ")));
         } else {
-            let text = self
-                .parents
-                .iter()
-                .map(|x| &x[..8])
-                .intersperse(" + ")
-                .collect::<String>();
+            use itertools::intersperse;
+            let text = intersperse(self.parents.iter().map(|x| &x[..8]), " + ").collect::<String>();
             let label = ui.label(format!("Parents: {}", text));
             if label.hovered() {
                 let text = self.parents.join(" + ");
@@ -59,7 +55,7 @@ impl CommitMetadata {
                 wasm_rs_dbg::dbg!(&text);
                 if ui.input_mut(|mem| mem.consume_shortcut(&SC_COPY)) {
                     wasm_rs_dbg::dbg!(&text);
-                    ui.output_mut(|mem| mem.copied_text = text.to_string());
+                    ui.ctx().copy_text(text.to_string());
                 }
             }
         }
@@ -159,31 +155,6 @@ pub struct MergePr {
     pub(crate) number: i64,
 }
 
-pub(super) fn fetch_merge_pr(
-    ctx: &egui::Context,
-    api_addr: &str,
-    commit: &Commit,
-) -> Promise<Result<MergePr, String>> {
-    let ctx = ctx.clone();
-    let (sender, promise) = Promise::new();
-    let url = format!(
-        "http://{}/pr/github/{}/{}/{}",
-        api_addr, &commit.repo.user, &commit.repo.name, &commit.id,
-    );
-
-    wasm_rs_dbg::dbg!(&url);
-    let request = ehttp::Request::get(&url);
-
-    ehttp::fetch(request, move |response| {
-        ctx.request_repaint(); // wake up UI thread
-        let resource = response
-            .and_then(|response| Resource::<MergePr>::from_response(&ctx, response))
-            .and_then(|x| x.content.ok_or("No content".into()));
-        sender.send(resource);
-    });
-    promise
-}
-
 impl Resource<MergePr> {
     fn from_response(_ctx: &egui::Context, response: ehttp::Response) -> Result<Self, String> {
         let text = response.text();
@@ -197,7 +168,7 @@ impl Resource<MergePr> {
     }
 }
 
-pub(super) fn fetch_merge_pr2(
+pub(super) fn fetch_merge_pr(
     ctx: &egui::Context,
     api_addr: &str,
     commit: &Commit,
@@ -219,18 +190,19 @@ pub(super) fn fetch_merge_pr2(
     let request = ehttp::Request::get(&url);
 
     ehttp::fetch(request, move |response| {
-        let mut md = md;
         ctx.request_repaint(); // wake up UI thread
         let resource = response
             .and_then(|response| Resource::<MergePr>::from_response(&ctx, response))
             .and_then(|x| x.content.ok_or("No content".into()));
 
         let resource = resource.map(|x| {
-
-            let request = ehttp::Request::post(&format!(
-                "{}/{}/{}/{}",
-                url_fork, x.head_commit.repo.user, x.head_commit.repo.name, x.head_commit.id,
-            ), Default::default());
+            let request = ehttp::Request::post(
+                &format!(
+                    "{}/{}/{}/{}",
+                    url_fork, x.head_commit.repo.user, x.head_commit.repo.name, x.head_commit.id,
+                ),
+                Default::default(),
+            );
             ehttp::fetch(request, |x| log::info!("{:?}", x));
 
             log::error!("{:?}", x);
@@ -473,7 +445,7 @@ impl SelectedProjects {
         self.commits.len()
     }
 
-    pub(crate) fn project_ids(&self) -> impl Iterator<Item = ProjectId> {
+    pub(crate) fn project_ids(&self) -> impl Iterator<Item = ProjectId> + use<> {
         (0..self.repositories.len()).into_iter().map(ProjectId)
     }
 
@@ -792,7 +764,7 @@ pub(crate) fn compute_commit_layout_timed(
                 index.insert(current.clone(), (r.times.len(), r.subs.len()));
                 if let Some(commit) = commits(&current) {
                     // universal time then ?
-                    let time = commit.time;// + commit.timezone as i64 * 60;
+                    let time = commit.time; // + commit.timezone as i64 * 60;
                     r.min_time = time.min(r.min_time);
                     r.max_time = time.max(r.max_time);
                     r.commits.push(format!("{current}"));
@@ -832,7 +804,7 @@ pub(crate) fn compute_commit_layout_timed(
                 } else if r.times[end - 1] != -1 {
                     delta_time = (r.times[prev] - r.times[end - 1]).abs();
                     r.max_delta = r.max_delta.max(delta_time);
-                } else if let Some(t) = r.times[start..end - 1].iter().rev().find(|x|**x!=-1) {
+                } else if let Some(t) = r.times[start..end - 1].iter().rev().find(|x| **x != -1) {
                     delta_time = (r.times[prev] - t).abs();
                     r.max_delta = r.max_delta.max(delta_time);
                 // } else if r.times[end - 2] != -1 {
@@ -859,6 +831,7 @@ pub(crate) fn compute_commit_layout_timed(
     r
 }
 
+#[allow(unused)] // TODO check if mod is still needed
 mod commits_layouting {
     use std::collections::HashMap;
 
@@ -934,7 +907,7 @@ mod commits_layouting {
                     let branch = &branches[old_idx];
                     (branch.target, branch.is_tag, branch.is_merged)
                 };
-                if let Some(&idx) = &indices.get(&target) {
+                if let Some(&idx) = indices.get(&target) {
                     let info = &mut commits[idx];
                     if is_tag {
                         info.tags.push(old_idx);

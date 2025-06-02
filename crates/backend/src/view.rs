@@ -1,13 +1,11 @@
 use std::hash::{Hash, Hasher};
 
 use axum::Json;
+use const_chunks::IteratorConstChunks;
 use hyperast::{
     compat::HashMap,
     store::defaults::{LabelIdentifier, NodeIdentifier},
-    types::{
-        self, Children, HyperAST, Childrn, LabelStore, Labeled, NodeStore, TypeStore,
-        WithChildren,
-    },
+    types::{self, Children, Childrn, HyperAST, LabelStore, Labeled, NodeStore, WithChildren},
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
@@ -110,7 +108,9 @@ pub fn view(state: SharedState, path: Parameters) -> Result<Json<ViewRes>, Strin
 
     log::info!("searching for {path:?}");
     let curr = resolve_path(src_tr, path, node_store);
-    todo!("should deprecate or accomodate changes in type repr ie. lang + type btw. could allow paking as u16 like before");
+    todo!(
+        "should deprecate or accomodate changes in type repr ie. lang + type btw. could allow paking as u16 like before"
+    );
     // let type_sys = TypeSys(types::Type::it().map(|x| x.to_string()).collect());
 
     // let view = make_view(vec![(curr, 20)], &repositories.processor.main_stores);
@@ -131,7 +131,9 @@ pub fn view_with_node_id(state: SharedState, id: u64) -> Result<Json<ViewRes>, S
     let node_store = &repositories.processor.main_stores.node_store;
     let label_store = &repositories.processor.main_stores.label_store;
 
-    todo!("should deprecate or accomodate changes in type repr ie. lang + type btw. could allow paking as u16 like before");
+    todo!(
+        "should deprecate or accomodate changes in type repr ie. lang + type btw. could allow paking as u16 like before"
+    );
     // let type_sys = TypeSys(types::Type::it().map(|x| x.to_string()).collect());
 
     // if node_store.try_resolve(id).is_none() {
@@ -191,7 +193,14 @@ where
     pub struct EntityHasher(u64);
     impl Hasher for EntityHasher {
         fn write(&mut self, a: &[u8]) {
-            self.0 = u64::from_be_bytes(a.array_chunks::<8>().next().unwrap().clone())
+            self.0 = u64::from_be_bytes(
+                a.into_iter()
+                    .cloned()
+                    .const_chunks::<8>()
+                    .next()
+                    .unwrap()
+                    .clone(),
+            )
         }
         fn finish(&self) -> u64 {
             self.0
@@ -269,7 +278,7 @@ where
     dbg!(&only_typed.ids.len());
     let label_list = label_list
         .into_iter()
-        .map(|l| stores.label_store().resolve( &l).to_string())
+        .map(|l| stores.label_store().resolve(&l).to_string())
         .collect();
     let view = View {
         label_list,

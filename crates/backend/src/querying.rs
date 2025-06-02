@@ -126,7 +126,7 @@ pub fn simple(
         hyperast_vcs_git::processing::RepoConfig::Any
     };
     let lang = &language;
-    let language: tree_sitter::Language = hyperast_vcs_git::resolve_language(&language)
+    let language = hyperast_vcs_git::resolve_language(&language)
         .ok_or_else(|| QueryingError::MissingLanguage(language.to_string()))?;
     let repo_spec = hyperast_vcs_git::git::Forge::Github.repo(user, name);
     let repo = state
@@ -372,7 +372,8 @@ fn pre_repo(
         Some(_) | None => {
             let configs = &mut state.repositories.write().unwrap();
             if let Some(precomp) = precomp {
-                configs.register_config_with_prequeries(repo_spec.clone(), config, &[&precomp]);
+                let precomp = precomp.split("\n\n").filter(|x|!x.is_empty()).collect::<Vec<_>>();
+                configs.register_config_with_prequeries(repo_spec.clone(), config, precomp.as_slice());
             } else {
                 configs.register_config(repo_spec.clone(), config);
             }
@@ -631,9 +632,10 @@ pub fn differential(
     let stores = &repositories.processor.main_stores;
 
     let hyperast = &hyperast_vcs_git::no_space::as_nospaces2(stores);
-    let (src_tree, dst_tree) =
-        crate::utils::get_pair_simp(&state.partial_decomps, hyperast, &current_tr, &other_tr);
-    let (src_tree, dst_tree) = (src_tree.get_mut(), dst_tree.get_mut());
+    let binding = crate::utils::bind_tree_pair(&state.partial_decomps, &current_tr, &other_tr);
+    let mut locked = binding.lock();
+    let (src_tree, dst_tree) = locked.as_mut(hyperast);
+
     let src_tree = Decompressible {
         hyperast,
         decomp: src_tree,

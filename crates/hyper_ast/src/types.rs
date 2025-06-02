@@ -417,9 +417,12 @@ mod exp {
     }
 }
 
-#[derive(Debug, Hash, Eq, PartialEq, EnumString, AsRefStr, EnumIter, EnumCount, Display)]
-#[strum(serialize_all = "snake_case")]
-enum Abstract {
+/// set of possible abtract type of nodes
+pub type Abstracts = enumset::EnumSet<Abstract>;
+
+/// the posible abstract type that a node can have
+#[derive(Debug, Hash, Display, enumset::EnumSetType)]
+pub enum Abstract {
     Expression,
     Statement,
     Executable,
@@ -427,6 +430,17 @@ enum Abstract {
     Literal,
 }
 
+impl Abstract {
+    pub fn when(self, enable: bool) -> Abstracts {
+        if enable {
+            self.into()
+        } else {
+            Abstracts::empty()
+        }
+    }
+}
+
+/// exclusive shared type, you can use it in combination with `Abstract`
 #[derive(Debug, EnumString, AsRefStr, EnumIter, EnumCount, Display)]
 #[strum(serialize_all = "snake_case")]
 #[derive(Hash, Clone, Copy, PartialEq, Eq)]
@@ -485,8 +499,10 @@ impl<T> LangRef<T> for LangWrapper<T> {
 // trait object used to facilitate erasing node types
 pub trait HyperType: Display + Debug {
     fn as_shared(&self) -> Shared;
+    /// returns an union of all abstract types that apply
+    fn as_abstract(&self) -> Abstracts;
     fn as_any(&self) -> &dyn std::any::Any;
-    // returns the same address for the same type
+    /// returns the same "address" for the same type
     fn as_static(&self) -> &'static dyn HyperType;
     fn as_static_str(&self) -> &'static str;
     fn generic_eq(&self, other: &dyn HyperType) -> bool
@@ -525,6 +541,10 @@ impl HyperType for u8 {
     }
 
     fn as_shared(&self) -> Shared {
+        todo!()
+    }
+
+    fn as_abstract(&self) -> Abstracts {
         todo!()
     }
 
@@ -1085,7 +1105,8 @@ pub trait TypeStore {
         + std::hash::Hash
         + Copy
         + std::marker::Send
-        + std::marker::Sync;
+        + std::marker::Sync
+        + crate::store::nodes::Compo;
 
     fn type_to_u16(t: Self::Ty) -> TypeInternalSize {
         t.get_lang().to_u16(t)
@@ -1094,8 +1115,7 @@ pub trait TypeStore {
         t.get_lang().ts_symbol(t)
     }
     fn decompress_type(erazed: &impl ErasedHolder, tid: std::any::TypeId) -> Self::Ty {
-        *erazed
-            .unerase_ref::<Self::Ty>(tid)
+        *unsafe { erazed.unerase_ref_unchecked::<Self::Ty>(tid) }
             .unwrap_or_else(|| unimplemented!("override 'decompress_type'"))
     }
 }
@@ -1110,10 +1130,10 @@ pub trait ETypeStore: TypeStore + Copy {
     fn intern(ty: Self::Ty2) -> Self::Ty;
 }
 
-impl<T> TTypeStore for T
+impl<S> TTypeStore for S
 where
-    T: TypeStore,
-    T::Ty: Compo,
+    S: TypeStore,
+    S::Ty: Compo,
 {
     type TTy = Self::Ty;
     fn decompress_ttype(erazed: &impl ErasedHolder, tid: std::any::TypeId) -> Self::TTy {
@@ -1254,12 +1274,24 @@ impl<L: LLang<Self, I = u16>> TypeU16<L> {
     }
 }
 
+impl<L: LLang<Self, I = u16>> Deref for TypeU16<L> {
+    type Target = L::E;
+
+    fn deref(&self) -> &Self::Target {
+        self.s()
+    }
+}
+
 impl<L: LLang<Self, I = u16> + std::fmt::Debug> HyperType for TypeU16<L>
 where
     L::E: HyperType,
 {
     fn as_shared(&self) -> Shared {
         self.e().as_shared()
+    }
+
+    fn as_abstract(&self) -> Abstracts {
+        self.e().as_abstract()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -1321,62 +1353,9 @@ where
     }
 }
 
-pub trait CompressedCompo {
-    fn decomp(ptr: impl ErasedHolder, tid: std::any::TypeId) -> Self
-    where
-        Self: Sized;
-
-    // fn compressed_insert(self, e: &mut EntityWorldMut<'_>);
-    // fn components(world: &mut World) -> Vec<ComponentId>;
-}
-
-pub trait ErasedHolder {
-    /// made unsafe because mixed-up args could return corrupted memory for certain impls
-    unsafe fn unerase_ref_unchecked<T: 'static + Compo>(
-        &self,
-        tid: std::any::TypeId,
-    ) -> Option<&T> {
-        self.unerase_ref(tid)
-    }
-    fn unerase_ref<T: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&T>;
-}
-
-impl ErasedHolder for &dyn std::any::Any {
-    fn unerase_ref<T: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&T> {
-        if tid == std::any::TypeId::of::<T>() {
-            self.downcast_ref()
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(all(feature = "bevy_ecs", feature = "legion"))]
-pub trait Compo: bevy_ecs::component::Component + legion::storage::Component {}
-
-#[cfg(all(feature = "bevy_ecs", feature = "legion"))]
-impl<T> Compo for T where T: bevy_ecs::component::Component + legion::storage::Component {}
-
-#[cfg(all(not(feature = "bevy_ecs"), feature = "legion"))]
-pub trait Compo: legion::storage::Component {}
-
-#[cfg(all(not(feature = "bevy_ecs"), feature = "legion"))]
-impl<T> Compo for T where T: legion::storage::Component {}
-
-#[cfg(all(not(feature = "bevy_ecs"), not(feature = "legion")))]
-pub trait Compo: Send + Sync {}
-
-#[cfg(all(not(feature = "bevy_ecs"), not(feature = "legion")))]
-impl<T: Send + Sync> Compo for T {}
-
-pub trait ErasedInserter {
-    fn insert<T: 'static + Compo>(&mut self, t: T);
-}
-
-pub trait CompoRegister {
-    type Id;
-    fn register_compo<T: 'static + Compo>(&mut self) -> Self::Id;
-}
+pub use crate::store::nodes::Compo;
+pub use crate::store::nodes::CompressedCompo;
+pub use crate::store::nodes::ErasedHolder;
 
 pub trait SpecializedTypeStore<T: Typed>: TypeStore {}
 
@@ -1460,6 +1439,10 @@ pub trait StoreRefAssoc: HyperAST {
             Label = <Self as HyperASTShared>::Label,
             Idx = <Self as HyperASTShared>::Idx,
         > + for<'t> AstLending<'t, RT = <Self as AstLending<'t>>::RT>;
+}
+
+pub trait NStoreRefAssoc {
+    type S;
 }
 
 pub trait NodeStorage<IdN> {}
@@ -1559,6 +1542,10 @@ impl HyperType for AnyType {
 
     fn as_shared(&self) -> Shared {
         self.0.as_shared()
+    }
+
+    fn as_abstract(&self) -> Abstracts {
+        self.0.as_abstract()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

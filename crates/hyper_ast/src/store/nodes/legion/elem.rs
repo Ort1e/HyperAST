@@ -7,7 +7,7 @@ use legion::{
 use num::ToPrimitive;
 
 use crate::{
-    filter::{Bloom, BloomResult, BloomSize, BF},
+    filter::{BF, Bloom, BloomResult, BloomSize},
     hashed::{NodeHashs, SyntaxNodeHashs, SyntaxNodeHashsKinds},
     impact::serialize::{CachedHasher, Keyed, MySerialize},
     nodes::{CompressedNode, HashSize, RefContainer},
@@ -18,15 +18,13 @@ use crate::{
     },
 };
 
-use super::compo::{self, NoSpacesCS, CS};
+use crate::store::nodes::compo::{self, CS, NoSpacesCS};
 
 pub type NodeIdentifier = legion::Entity;
 pub type EntryRef<'a> = legion::world::EntryRef<'a>;
 #[derive(ref_cast::RefCast)]
 #[repr(transparent)]
 pub struct HashedNodeRef<'a, T = NodeIdentifier>(pub(super) EntryRef<'a>, PhantomData<T>);
-
-impl crate::types::AAAA for NodeIdentifier {}
 
 impl<'a, T> HashedNodeRef<'a, T> {
     #[doc(hidden)]
@@ -47,6 +45,8 @@ impl<'a, T> From<&'a EntryRef<'a>> for &'a HashedNodeRef<'a, T> {
         HashedNodeRef::ref_cast(value)
     }
 }
+
+impl crate::types::AAAA for NodeIdentifier {}
 
 impl NodeId for NodeIdentifier {
     type IdN = Self;
@@ -307,7 +307,7 @@ impl<'a, T> HashedNodeRef<'a, T> {
     pub unsafe fn into_component_unchecked<C: Component>(
         self,
     ) -> Result<&'a mut C, ComponentError> {
-        self.0.into_component_unchecked::<C>()
+        unsafe { self.0.into_component_unchecked::<C>() }
     }
 
     /// Returns a reference to one of the entity's components.
@@ -321,7 +321,7 @@ impl<'a, T> HashedNodeRef<'a, T> {
     /// This function bypasses static borrow checking. The caller must ensure that the component reference
     /// will not be mutably aliased.
     pub unsafe fn get_component_unchecked<C: Component>(&self) -> Result<&mut C, ComponentError> {
-        self.0.get_component_unchecked::<C>()
+        unsafe { self.0.get_component_unchecked::<C>() }
     }
 }
 
@@ -380,7 +380,7 @@ where
         }
         let a = self.0.get_component::<LabelIdentifier>();
         let label: Option<LabelIdentifier> = a.ok().map(|x| x.clone());
-        let children = self.children().map(|mut x| x.map(|x| x.clone()).collect());
+        let children = self.children().map(|x| x.map(|x| x.clone()).collect());
         // .0.get_component::<CS<legion::Entity>>();
         // let children = children.ok().map(|x| x.0.clone());
         Ok(CompressedNode::new(
@@ -598,7 +598,8 @@ impl<'a, T: crate::types::NodeId<IdN = NodeIdentifier>> crate::types::WithChildr
     }
 
     fn child(&self, idx: &Self::ChildIdx) -> Option<NodeIdentifier> {
-        self.cs().ok()?
+        self.cs()
+            .ok()?
             // .unwrap_or_else(|x| {
             //     log::error!("backtrace: {}", std::backtrace::Backtrace::force_capture());
             //     panic!("{}", x)
@@ -654,8 +655,8 @@ impl<'a, T: crate::types::NodeId<IdN = NodeIdentifier>> crate::types::WithRoles
         &self,
         at: Self::ChildIdx,
     ) -> Option<Role> {
+        let r = &self.0.get_component::<compo::Roles<Role>>().ok()?.0;
         let ro = self.0.get_component::<compo::RoleOffsets>().ok()?;
-        let r = self.0.get_component::<Box<[Role]>>().ok()?;
         let mut i = 0;
         for &ro in ro.0.as_ref() {
             if ro as u16 > at {
@@ -693,7 +694,7 @@ impl<'a, T> crate::types::WithHashs for HashedNodeRef<'a, T> {
     }
 }
 
-impl<'a, Id> crate::types::ErasedHolder for HashedNodeRef<'a, Id> {
+impl<'a, Id> crate::store::nodes::ErasedHolder for HashedNodeRef<'a, Id> {
     fn unerase_ref<T: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&T> {
         if tid == std::any::TypeId::of::<T>() {
             self.get_component().ok()

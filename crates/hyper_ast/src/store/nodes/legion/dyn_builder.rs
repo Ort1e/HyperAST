@@ -86,7 +86,7 @@
 //! ```
 
 use std::{
-    alloc::{alloc, dealloc, Layout},
+    alloc::{Layout, alloc, dealloc},
     any::TypeId,
     collections::HashMap,
     hash::{BuildHasher, BuildHasherDefault, Hasher},
@@ -94,12 +94,12 @@ use std::{
 };
 
 use legion::{
+    Entity,
     query::{FilterResult, LayoutFilter},
     storage::{
         ArchetypeSource, ArchetypeWriter, ComponentSource, ComponentTypeId, EntityLayout,
         UnknownComponentStorage,
     },
-    Entity,
 };
 
 use super::*;
@@ -109,11 +109,16 @@ pub struct BuiltEntity {
     inner: Common<fn() -> Box<dyn UnknownComponentStorage>>,
 }
 
+impl Debug for BuiltEntity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuiltEntity").finish()
+    }
+}
+
 #[derive(Default)]
 pub struct EntityBuilder {
     inner: Common<fn() -> Box<dyn UnknownComponentStorage>>,
 }
-
 
 impl EntityBuilder {
     pub fn new() -> Self {
@@ -122,14 +127,11 @@ impl EntityBuilder {
     pub fn build(self) -> BuiltEntity {
         BuiltEntity { inner: self.inner }
     }
-}
-
-impl super::super::EntityBuilder for EntityBuilder {
     /// Add `component` to the entity.
     ///
     /// If the bundle already contains a component of type `T`, it will be dropped and replaced with
     /// the most recently added one.
-    fn add<T: Component>(&mut self, mut component: T) -> &mut Self {
+    pub(crate) fn _add<T: legion::storage::Component>(&mut self, mut component: T) -> &mut Self {
         unsafe {
             self.inner.add(
                 (&mut component as *mut T).cast(),
@@ -142,8 +144,17 @@ impl super::super::EntityBuilder for EntityBuilder {
     }
 }
 
-impl IntoComponentSource for BuiltEntity
-{
+impl super::super::EntityBuilder for EntityBuilder {
+    /// Add `component` to the entity.
+    ///
+    /// If the bundle already contains a component of type `T`, it will be dropped and replaced with
+    /// the most recently added one.
+    fn add<T: Component>(&mut self, component: T) -> &mut Self {
+        self._add(component)
+    }
+}
+
+impl IntoComponentSource for BuiltEntity {
     type Source = BuiltEntity;
 
     fn into(self) -> Self::Source {
@@ -151,8 +162,7 @@ impl IntoComponentSource for BuiltEntity
     }
 }
 
-impl IntoComponentSource for EntityBuilder
-{
+impl IntoComponentSource for EntityBuilder {
     type Source = BuiltEntity;
 
     fn into(self) -> Self::Source {
@@ -322,7 +332,7 @@ impl TypeInfo {
     /// Construct a `TypeInfo` directly from the static type.
     pub fn of<T: 'static + Send + Sync>() -> Self {
         unsafe fn drop_ptr<T>(x: *mut u8) {
-            x.cast::<T>().drop_in_place()
+            unsafe { x.cast::<T>().drop_in_place() }
         }
 
         Self {
@@ -365,7 +375,7 @@ impl TypeInfo {
     /// All of the caveats of [`core::ptr::drop_in_place`] apply, with the additional requirement
     /// that this method is being called on a pointer to an object of the correct component type.
     pub unsafe fn drop(&self, data: *mut u8) {
-        (self.drop)(data)
+        unsafe { (self.drop)(data) }
     }
 
     /// Get the function pointer encoding the destructor for the component type this `TypeInfo`
@@ -444,16 +454,18 @@ impl<M> Common<M> {
             Entry::Occupied(occupied) => {
                 let index = *occupied.get();
                 let (ty, offset, _) = self.inner.info[index];
-                let storage = self.inner.storage.as_ptr().add(offset);
+                unsafe {
+                    let storage = self.inner.storage.as_ptr().add(offset);
 
-                // Drop the existing value
-                ty.drop(storage);
+                    // Drop the existing value
+                    ty.drop(storage);
 
-                // Overwrite the old value with our new one.
-                std::ptr::copy_nonoverlapping(ptr, storage, ty.layout().size());
+                    // Overwrite the old value with our new one.
+                    std::ptr::copy_nonoverlapping(ptr, storage, ty.layout().size());
+                }
             }
             Entry::Vacant(vacant) => {
-                self.inner.fun_name(ty, ptr, vacant, meta);
+                unsafe { self.inner.fun_name(ty, ptr, vacant, meta) };
             }
         }
     }
@@ -467,8 +479,8 @@ impl<M> CommonInner<M> {
         storage: NonNull<u8>,
     ) -> (NonNull<u8>, Layout) {
         let layout = Layout::from_size_align(min_size.next_power_of_two().max(64), align).unwrap();
-        let new_storage = NonNull::new_unchecked(alloc(layout));
-        std::ptr::copy_nonoverlapping(storage.as_ptr(), new_storage.as_ptr(), cursor);
+        let new_storage = unsafe { NonNull::new_unchecked(alloc(layout)) };
+        unsafe { std::ptr::copy_nonoverlapping(storage.as_ptr(), new_storage.as_ptr(), cursor) };
         (new_storage, layout)
     }
 
@@ -483,9 +495,10 @@ impl<M> CommonInner<M> {
         let end = offset + ty.layout().size();
         if end > self.layout.size() || ty.layout().align() > self.layout.align() {
             let new_align = self.layout.align().max(ty.layout().align());
-            let (new_storage, new_layout) = Self::grow(end, self.cursor, new_align, self.storage);
+            let (new_storage, new_layout) =
+                unsafe { Self::grow(end, self.cursor, new_align, self.storage) };
             if self.layout.size() != 0 {
-                dealloc(self.storage.as_ptr(), self.layout);
+                unsafe { dealloc(self.storage.as_ptr(), self.layout) };
             }
             self.storage = new_storage;
             self.layout = new_layout;
@@ -493,7 +506,7 @@ impl<M> CommonInner<M> {
 
         if ty.id().type_id() == TypeId::of::<(Vec<usize>,)>() {
             let aaa = ptr as *mut (Vec<usize>,);
-            dbg!(aaa.as_ref());
+            dbg!(unsafe { aaa.as_ref() });
             // let v = unsafe { Vec::<usize>::from_raw_parts(ptr as *mut usize, 4, 4) };
             // dbg!(&v);
             // std::mem::forget(v);
@@ -501,14 +514,14 @@ impl<M> CommonInner<M> {
 
         if ty.id().type_id() == TypeId::of::<(Box<[u32]>,)>() {
             let aaa = ptr as *mut (Box<[u32]>,);
-            dbg!(aaa.as_ref());
+            dbg!(unsafe { aaa.as_ref() });
             // let v = unsafe { Vec::<usize>::from_raw_parts(ptr as *mut usize, 4, 4) };
             // dbg!(&v);
             // std::mem::forget(v);
         }
 
-        let addr = self.storage.as_ptr().add(offset);
-        std::ptr::copy_nonoverlapping(ptr, addr, ty.layout().size());
+        let addr = unsafe { self.storage.as_ptr().add(offset) };
+        unsafe { std::ptr::copy_nonoverlapping(ptr, addr, ty.layout().size()) };
 
         vacant.insert(self.info.len());
         self.info.push((ty, offset, meta));
@@ -516,7 +529,7 @@ impl<M> CommonInner<M> {
 
         if ty.id().type_id() == TypeId::of::<(Box<[u32]>,)>() {
             let aaa = ptr as *mut (Box<[u32]>,);
-            dbg!(aaa.as_ref());
+            dbg!(unsafe { aaa.as_ref() });
             // let v = unsafe { Vec::<usize>::from_raw_parts(ptr as *mut usize, 4, 4) };
             // dbg!(&v);
             // std::mem::forget(v);
@@ -560,14 +573,13 @@ impl<M> Default for Common<M> {
 
 #[test]
 fn example() {
-    use crate::store::nodes::EntityBuilder as _;
     let mut world = legion::World::new(Default::default());
     let mut components = EntityBuilder::new();
-    components.add(42i32);
-    components.add(true);
-    components.add(vec![0, 1, 2, 3]);
-    components.add("hello");
-    components.add(0u64);
+    components._add(42i32);
+    components._add(true);
+    components._add(vec![0, 1, 2, 3]);
+    components._add("hello");
+    components._add(0u64);
     let components = components.build();
     let entity = world.extend(components)[0];
     assert_eq!(Ok(&42), world.entry(entity).unwrap().get_component::<i32>());
@@ -579,27 +591,26 @@ fn example() {
 
 #[test]
 fn simple() {
-    use crate::store::nodes::EntityBuilder as _;
     let mut world = legion::World::new(Default::default());
     let mut components = EntityBuilder::new();
     let mut comp0: (Box<[u32]>,) = (vec![0, 0, 0, 0, 0, 1, 4100177920].into_boxed_slice(),); //0, 14, 43, 10, 876, 7, 1065, 35
     let mut comp0_saved = comp0.clone();
     let comp0_ptr = (&mut comp0) as *mut (Box<[u32]>,);
-    components.add(comp0);
+    components._add(comp0);
     unsafe { (*comp0_ptr).0[4] = 42 };
     comp0_saved.0[4] = 42;
     let comp1: i32 = 0;
-    components.add(comp1);
+    components._add(comp1);
     let comp2: bool = true;
-    components.add(comp2);
+    components._add(comp2);
     let mut comp3: Vec<u64> = vec![0, 1, 2, 3];
     let comp3_saved = comp3.clone();
     let comp3_ptr = (&mut comp3) as *mut Vec<u64>;
-    components.add(comp3);
+    components._add(comp3);
     let comp4: String = "ewgwgwsegwesf".into();
-    components.add(comp4.clone());
+    components._add(comp4.clone());
     let comp5: u64 = 0;
-    components.add(comp5);
+    components._add(comp5);
     let components = components.build();
     dbg!(unsafe { comp0_ptr.as_ref() });
     let entity = world.extend(components)[0];

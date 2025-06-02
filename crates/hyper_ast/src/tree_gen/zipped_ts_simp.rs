@@ -1,17 +1,18 @@
-use super::{parser::Visibility, utils_ts::*, zipped::Has, P};
+use super::{P, parser::Visibility, utils_ts::*, zipped::Has};
+use crate::store::nodes::compo;
 use crate::store::{
-    nodes::{
-        legion::{compo, dyn_builder, eq_node, NodeIdentifier},
-        DefaultNodeStore as NodeStore,
-    },
     SimpleStores,
+    nodes::{
+        DefaultNodeStore as NodeStore,
+        legion::{NodeIdentifier, dyn_builder, eq_node},
+    },
 };
 use crate::tree_gen::{
-    self, compute_indentation, get_spacing, has_final_space,
+    self, AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents,
+    PreResult, SpacedGlobalData, Spaces, SubTreeMetrics, TextedGlobalData,
+    TotalBytesGlobalData as _, TreeGen, WithByteRange, ZippedTreeGen, compute_indentation,
+    get_spacing, has_final_space,
     parser::{Node as _, TreeCursor},
-    AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents, PreResult,
-    SpacedGlobalData, Spaces, SubTreeMetrics, TextedGlobalData, TotalBytesGlobalData as _, TreeGen,
-    WithByteRange, ZippedTreeGen,
 };
 use crate::{
     filter::BloomSize,
@@ -132,7 +133,7 @@ impl<T> tree_gen::WithChildren<NodeIdentifier> for Acc<T> {
 }
 
 impl<T> tree_gen::WithRole<crate::types::Role> for Acc<T> {
-    fn role_at(&self, o: usize) -> Option<crate::types::Role> {
+    fn role_at(&self, _o: usize) -> Option<crate::types::Role> {
         todo!()
         // self.role
         //     .offsets
@@ -148,16 +149,7 @@ impl<'acc, T> tree_gen::WithLabel for &'acc Acc<T> {
 }
 
 impl<'store, 'cache, 's, TS: TsEnableTS>
-    TsTreeGen<
-        'store,
-        'cache,
-        TS,
-        tree_gen::NoOpMore<
-            TS,
-            Acc<TS::Ty2>,
-        >,
-        true,
-    >
+    TsTreeGen<'store, 'cache, TS, tree_gen::NoOpMore<TS, Acc<TS::Ty2>>, true>
 where
     TS::Ty2: TsType,
 {
@@ -179,6 +171,7 @@ where
 {
 }
 
+#[allow(unreachable_code)]
 impl<'store, 'cache, TS, More, const HIDDEN_NODES: bool> ZippedTreeGen
     for TsTreeGen<'store, 'cache, TS, More, HIDDEN_NODES>
 where
@@ -191,7 +184,7 @@ where
     type Node<'b> = TNode<'b>;
     type TreeCursor<'b> = TTreeCursor<'b>;
 
-    fn gen(
+    fn r#gen(
         &mut self,
         text: &Self::Text,
         stack: &mut Parents<Self::Acc>,
@@ -199,7 +192,7 @@ where
         global: &mut Self::Global,
     ) {
         let mut pre_post = PrePost::new(cursor);
-        while let Some(vis) = pre_post.next() {
+        while let Some(_vis) = pre_post.next() {
             let (cursor, has) = pre_post.current().unwrap();
             if *has == Has::Up || *has == Has::Right {
                 // #post
@@ -242,9 +235,7 @@ where
         let mut has = Has::Down;
         loop {
             dbg!(cursor.0.node().kind());
-            if has != Has::Up
-                && let Some(_) = cursor.goto_first_child_extended()
-            {
+            if has != Has::Up && cursor.goto_first_child_extended().is_some() {
                 has = Has::Down;
                 global.down();
                 match self.pre_skippable(text, cursor, &stack, global) {
@@ -309,8 +300,9 @@ where
                 }
             }
             continue;
-            if has != Has::Up
-                && let Some(visibility) = cursor.goto_first_child_extended()
+            if let Some(visibility) = (has != Has::Up)
+                .then(|| cursor.goto_first_child_extended())
+                .flatten()
             {
                 has = Has::Down;
                 global.down();
@@ -555,20 +547,20 @@ where
         global: &mut Self::Global,
     ) -> PreResult<<Self as TreeGen>::Acc> {
         let node = cursor.node();
-        let kind = TS::obtain_type(&node);
+        // let kind = TS::obtain_type(&node);
         if HIDDEN_NODES {}
         if node.0.is_missing() {
             dbg!("missing");
             return PreResult::Skip;
         }
-        let mut acc = self.pre(text, &node, stack, global);
+        let acc = self.pre(text, &node, stack, global);
         // TODO replace with wrapper
         if !stack
             .parent()
             .map_or(false, |a| a.simple.kind.is_supertype())
         {
             if let Some(r) = cursor.0.field_name() {
-                if let Ok(r) = TryInto::<crate::types::Role>::try_into(r) {
+                if let Ok(_r) = TryInto::<crate::types::Role>::try_into(r) {
                     // acc.role.current = Some(r);
                     log::warn!("not retrieving roles");
                 } else {
@@ -745,7 +737,7 @@ where
         }
         let mut stack = init.into();
 
-        self.gen(text, &mut stack, &mut xx, &mut global);
+        self.r#gen(text, &mut stack, &mut xx, &mut global);
 
         let mut acc = stack.finalize();
 

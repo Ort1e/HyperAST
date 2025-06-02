@@ -63,7 +63,7 @@ impl<HAST, D> Decompressible<HAST, D> {
     pub(crate) fn map<DD>(self, f: impl Fn(D) -> DD) -> Decompressible<HAST, DD> {
         Decompressible {
             hyperast: self.hyperast,
-            decomp: f(self.decomp)
+            decomp: f(self.decomp),
         }
     }
 }
@@ -104,7 +104,7 @@ pub struct Mapper<HAST, Dsrc, Ddst, M> {
 }
 
 impl<HAST: Copy, Dsrc, Ddst, M> Mapper<HAST, Dsrc, Ddst, M> {
-    fn split<'a>(
+    pub fn split_mut<'a>(
         &'a mut self,
     ) -> Mapping<Decompressible<HAST, &'a mut Dsrc>, Decompressible<HAST, &'a mut Ddst>, &'a mut M>
     {
@@ -120,6 +120,37 @@ impl<HAST: Copy, Dsrc, Ddst, M> Mapper<HAST, Dsrc, Ddst, M> {
                 decomp: &mut mapping.dst_arena,
             },
             mappings: &mut mapping.mappings,
+        }
+    }
+
+    pub(crate) fn with_mut_decompressible(
+        owned: &mut (Decompressible<HAST, Dsrc>, Decompressible<HAST, Ddst>),
+    ) -> Mapper<HAST, Decompressible<HAST, &mut Dsrc>, Decompressible<HAST, &mut Ddst>, M>
+    where
+        M: Default,
+    {
+        Mapper {
+            hyperast: owned.0.hyperast,
+            mapping: crate::matchers::Mapping {
+                src_arena: owned.0.as_mut(),
+                dst_arena: owned.1.as_mut(),
+                mappings: Default::default(),
+            },
+        }
+    }
+
+    pub(crate) fn new(
+        hyperast: HAST,
+        mappings: M,
+        owned: (Dsrc, Ddst),
+    ) -> Mapper<HAST, Dsrc, Ddst, M> {
+        Mapper {
+            hyperast,
+            mapping: crate::matchers::Mapping {
+                src_arena: owned.0,
+                dst_arena: owned.1,
+                mappings,
+            },
         }
     }
 }
