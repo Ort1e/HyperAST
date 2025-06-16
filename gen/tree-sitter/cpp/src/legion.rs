@@ -338,6 +338,25 @@ where
         text: &[u8],
         acc: <Self as TreeGen>::Acc,
     ) -> <<Self as TreeGen>::Acc as Accumulator>::Node {
+        if global.sum_byte_length() < acc.end_byte {
+            // only create an error node if tree-sitter is skipping non-whitespaces
+            if try_get_spacing(
+                global.sum_byte_length(),
+                acc.end_byte,
+                text,
+                parent.indentation(),
+            )
+            .is_none()
+            {
+                let local = self.make_error(&text[global.sum_byte_length()..acc.end_byte]);
+                acc.push(FullNode {
+                    global: global.simple(),
+                    local,
+                });
+                global.set_sum_byte_length(acc.end_byte);
+            }
+        }
+
         let spacing = get_spacing(
             acc.padding_start,
             acc.start_byte,
@@ -474,6 +493,56 @@ where
             viz_cs_count: 0,
         }
     }
+
+    fn make_error(&mut self, text: &[u8]) -> Local {
+        let kind = Type::ERROR;
+        let interned_kind = TS::intern(kind);
+        debug_assert_eq!(kind, TS::resolve(interned_kind));
+        let bytes_len = text.len();
+        let text = std::str::from_utf8(&text).unwrap().to_string();
+        let line_count = text
+            .matches("\n")
+            .count()
+            .to_u16()
+            .expect("too many newlines");
+        let label_id = self.stores.label_store.get_or_insert(text.clone());
+        let hbuilder: hashed::HashesBuilder<SyntaxNodeHashs<u32>> =
+            hashed::HashesBuilder::new(Default::default(), &interned_kind, &text, 1);
+        let hsyntax = hbuilder.most_discriminating();
+        let hashable = &hsyntax;
+
+        let eq = eq_node::<_, _, NodeIdentifier>(&interned_kind, Some(&label_id), &[]);
+
+        let insertion = self.stores.node_store.prepare_insertion(&hashable, eq);
+
+        let hashs = hbuilder.build();
+
+        let compressed_node = if let Some(id) = insertion.occupied_id() {
+            id
+        } else {
+            let vacant = insertion.vacant();
+            let bytes_len = compo::BytesLen(bytes_len.try_into().unwrap());
+            NodeStore::insert_after_prepare(
+                vacant,
+                (interned_kind, label_id, bytes_len, hashs, BloomSize::None),
+            )
+        };
+        Local {
+            compressed_node,
+            metrics: SubTreeMetrics {
+                size: 1,
+                height: 0,
+                size_no_spaces: 0,
+                hashs,
+                line_count,
+            },
+            ana: Default::default(),
+            role: None,
+            precomp_queries: Default::default(),
+            viz_cs_count: 0,
+        }
+    }
+
 
     pub fn tree_sitter_parse(text: &[u8]) -> Result<tree_sitter::Tree, tree_sitter::Tree> {
         tree_sitter_parse(text)
