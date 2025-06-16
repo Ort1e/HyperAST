@@ -337,7 +337,7 @@ where
         parent: &mut <Self as TreeGen>::Acc,
         global: &mut Self::Global,
         text: &[u8],
-        acc: <Self as TreeGen>::Acc,
+        mut acc: <Self as TreeGen>::Acc,
     ) -> <<Self as TreeGen>::Acc as Accumulator>::Node {
         if global.sum_byte_length() < acc.end_byte {
             // only create an error node if tree-sitter is skipping non-whitespaces
