@@ -176,7 +176,6 @@ role_impl!(
     // Right => "right",
     Designator => "designator",
     Placement => "placement",
-    Length => "length",
     // Scope => "scope",
     // Update => "update",
     End => "end",
