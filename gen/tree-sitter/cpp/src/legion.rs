@@ -257,8 +257,8 @@ where
         if HIDDEN_NODES {
             if kind.is_repeat() {
                 // dbg!(kind);
-                if stack.parent().unwrap().simple.children.len() < 1024
-                    && stack.parent().unwrap().viz_cs_count < 1024
+                if stack.parent().unwrap().simple.children.len() < 255
+                    && stack.parent().unwrap().viz_cs_count < 255
                 {
                     return PreResult::Ignore;
                 }
