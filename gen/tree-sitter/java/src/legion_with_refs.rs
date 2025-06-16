@@ -41,8 +41,8 @@ use hyperast::{
 };
 use legion::world::EntryRef;
 use num::ToPrimitive;
+use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::{collections::HashMap, fmt::Debug, vec};
 
 #[cfg(feature = "impact")]
 mod reference_analysis;
@@ -94,7 +94,7 @@ pub struct JavaTreeGen<
     pub _p: PhantomData<TS>,
 }
 
-pub type MDCache = HashMap<NodeIdentifier, MD>;
+pub type MDCache = hashbrown::HashMap<NodeIdentifier, MD>;
 
 // NOTE only keep compute intensive metadata (where space/time tradeoff is worth storing)
 // eg. decls refs, maybe hashes but not size and height
@@ -336,8 +336,10 @@ where
         stack: &Parents<Self::Acc>,
         global: &mut Self::Global,
     ) -> PreResult<<Self as TreeGen>::Acc> {
-        let node = &cursor.node();
-        let kind = TS::obtain_type(node);
+        let node = cursor.node();
+        let Some(kind) = TS::try_obtain_type(&node) else {
+            return PreResult::Skip;
+        };
         if should_get_hidden_nodes() {
             if kind.is_repeat() {
                 return PreResult::Ignore;
@@ -351,7 +353,7 @@ where
         if node.0.is_missing() {
             return PreResult::Skip;
         }
-        let mut acc = self.pre(text, node, stack, global);
+        let mut acc = self.pre(text, &node, stack, global);
         // TODO replace with wrapper
         if !stack
             .parent()
@@ -572,14 +574,14 @@ impl<'stores, 'cache, 'acc, TS: JavaEnabledTypeStore + 'static, More, const HIDD
             dedup: self.dedup,
             stores: self.stores,
             md_cache: self.md_cache,
-            more: more,
+            more,
             _p: self._p,
         }
     }
 
     pub fn with_line_break(self, line_break: Vec<u8>) -> Self {
         JavaTreeGen {
-            line_break: line_break,
+            line_break,
             dedup: self.dedup,
             stores: self.stores,
             md_cache: self.md_cache,
@@ -627,15 +629,9 @@ where
             true
         };
 
-        let dedup = self
-            .dedup
-            .as_mut()
-            .map_or(&mut self.stores.node_store.dedup, |x| &mut x.0);
-        let insertion = self
-            .stores
-            .node_store
-            .inner
-            .prepare_insertion(dedup, &hashable, eq);
+        let dedup = &mut self.stores.node_store.dedup;
+        let dedup = self.dedup.as_mut().map_or(dedup, |x| &mut x.0);
+        let insertion = (self.stores.node_store.inner).prepare_insertion(dedup, &hashable, eq);
 
         let mut hashs = hbuilder.build();
         hashs.structt = 0;
@@ -1089,10 +1085,8 @@ where
 
             let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
 
-            let dedup = self
-                .dedup
-                .as_mut()
-                .map_or(&mut self.stores.node_store.dedup, |x| &mut x.0);
+            let dedup = &mut self.stores.node_store.dedup;
+            let dedup = self.dedup.as_mut().map_or(dedup, |x| &mut x.0);
             let insertion = node_store.prepare_insertion(dedup, &hashable, eq);
 
             let local = if let Some(id) = insertion.occupied_id() {
