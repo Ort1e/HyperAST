@@ -259,7 +259,7 @@ where
         if HIDDEN_NODES {
             if kind.is_repeat() {
                 // dbg!(kind);
-                warn!("skipping repeat node: {:?}, parent : {:?}", kind, stack.parent().unwrap().simple.children.kind);
+                warn!("skipping repeat node: {:?}, parent : {:?}", kind, stack.parent().unwrap().simple.kind);
                 if stack.parent().unwrap().simple.children.len() < 255
                     && stack.parent().unwrap().viz_cs_count < 255
                 {
