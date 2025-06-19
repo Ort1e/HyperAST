@@ -33,6 +33,8 @@ use num::ToPrimitive as _;
 ///! fully compress all subtrees from a cpp CST
 use std::{collections::HashMap, fmt::Debug, vec};
 
+use log::warn;
+
 pub type LabelIdentifier = hyperast::store::labels::DefaultLabelIdentifier;
 
 /// HIDDEN_NODES: enables recovering of hidden nodes from tree-sitter.
@@ -257,6 +259,7 @@ where
         if HIDDEN_NODES {
             if kind.is_repeat() {
                 // dbg!(kind);
+                warn!("skipping repeat node: {:?}, parent : {:?}", kind, stack.parent().unwrap().simple.children.kind);
                 if stack.parent().unwrap().simple.children.len() < 255
                     && stack.parent().unwrap().viz_cs_count < 255
                 {
