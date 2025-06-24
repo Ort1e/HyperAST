@@ -60,7 +60,7 @@
             cacert
 
             # Rust
-            (rust-bin.fromRustupToolchainFile ./rust-toolchain)
+            (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
           ];
           cargoLock = {
             lockFile = ./Cargo.lock;
@@ -102,7 +102,7 @@
         devShell = pkgs.mkShell rec {
           buildInputs = with pkgs; [
             # Rust
-            (rust-bin.fromRustupToolchainFile ./rust-toolchain)
+            (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
             trunk
 
             # misc
