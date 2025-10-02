@@ -68,30 +68,29 @@ pub trait ShallowDecompressedTreeStore<HAST: HyperAST + Copy, IdD, IdS = IdD> {
     fn child(&self, x: &IdD, p: &[impl PrimInt]) -> IdS;
     fn children(&self, x: &IdD) -> Vec<IdS>;
 }
+
 pub trait Shallow<T> {
     fn shallow(&self) -> &T;
+    fn to_shallow(&self) -> T;
 }
 
-impl Shallow<u64> for u64 {
-    fn shallow(&self) -> &u64 {
-        self
-    }
+macro_rules! shallow_impl {
+    ($ty:ty) => {
+        impl Shallow<$ty> for $ty {
+            fn shallow(&self) -> &$ty {
+                self
+            }
+            fn to_shallow(&self) -> $ty {
+                *self
+            }
+        }
+    };
 }
-impl Shallow<u32> for u32 {
-    fn shallow(&self) -> &u32 {
-        self
-    }
-}
-impl Shallow<u16> for u16 {
-    fn shallow(&self) -> &u16 {
-        self
-    }
-}
-impl Shallow<u8> for u8 {
-    fn shallow(&self) -> &u8 {
-        self
-    }
-}
+
+shallow_impl! {u64}
+shallow_impl! {u32}
+shallow_impl! {u16}
+shallow_impl! {u8}
 
 pub trait LazyDecompressed<IdS> {
     type IdD: Shallow<IdS>;
@@ -105,6 +104,14 @@ pub trait LazyDecompressedTreeStore<HAST: HyperAST + Copy, IdS>:
     #[must_use]
     fn decompress_children(&mut self, x: &Self::IdD) -> Vec<Self::IdD>;
     fn decompress_to(&mut self, x: &IdS) -> Self::IdD;
+
+    fn decompress_descendants(&mut self, x: &Self::IdD) {
+        let mut q = self.decompress_children(x);
+        while let Some(x) = q.pop() {
+            // assert!(self.id_parent[x.to_usize().unwrap()] != zero());
+            q.extend(self.decompress_children(&x));
+        }
+    }
 }
 
 pub trait DecompressedTreeStore<HAST: HyperAST + Copy, IdD, IdS = IdD>:
@@ -229,14 +236,6 @@ pub trait PostOrderKeyRoots<HAST: HyperAST + Copy, IdD>:
 pub struct Iter<IdD> {
     current: IdD,
     len: IdD,
-}
-
-#[cfg(debug_assertions)]
-#[allow(unused)]
-impl<IdD> Iter<IdD> {
-    pub(crate) fn new(current: IdD, len: IdD) -> Self {
-        Self { current, len }
-    }
 }
 
 impl<IdD: PrimInt> Iterator for Iter<IdD> {

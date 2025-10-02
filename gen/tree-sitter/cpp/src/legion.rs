@@ -5,7 +5,7 @@ use hyperast::store::nodes::legion::dyn_builder;
 use hyperast::tree_gen::utils_ts::TTreeCursor;
 use hyperast::tree_gen::try_get_spacing;
 use hyperast::tree_gen::{
-    self, NoOpMore, RoleAcc, TotalBytesGlobalData as _, add_md_precomp_queries,
+    self, NoOpMore, RoleAcc, TotalBytesGlobalData as _, add_md_precomp_queries, try_get_spacing,
 };
 use hyperast::tree_gen::{
     AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, GlobalData, Parents, PreResult,
@@ -197,8 +197,8 @@ impl Debug for Acc {
     }
 }
 
-impl<'store, 'cache, TS, More, const HIDDEN_NODES: bool> ZippedTreeGen
-    for CppTreeGen<'store, 'cache, TS, More, HIDDEN_NODES>
+impl<TS, More, const HIDDEN_NODES: bool> ZippedTreeGen
+    for CppTreeGen<'_, '_, TS, More, HIDDEN_NODES>
 where
     TS: CppEnabledTypeStore<Ty2 = Type>,
     More: tree_gen::Prepro<SimpleStores<TS>>
@@ -280,10 +280,7 @@ where
         }
         let mut acc = self.pre(text, &node, stack, global);
         // TODO replace with wrapper
-        if !stack
-            .parent()
-            .map_or(false, |a| a.simple.kind.is_supertype())
-        {
+        if !stack.parent().is_some_and(|a| a.simple.kind.is_supertype()) {
             if let Some(r) = cursor.0.field_name() {
                 if let Ok(r) = r.try_into() {
                     acc.role.current = Some(r);
@@ -313,7 +310,7 @@ where
             text,
             node.start_byte(),
             global.sum_byte_length(),
-            &parent_indentation,
+            parent_indentation,
         );
         Acc {
             labeled: node.has_label(),
@@ -366,11 +363,24 @@ where
             text,
             parent.indentation(),
         );
-        // dbg!(parent.simple.kind, parent.end_byte);
-        // dbg!(acc.simple.kind, acc.end_byte);
-        // if acc.simple.kind == Type::ExpressionStatement {
-        //     dbg!();
-        // }
+        if global.sum_byte_length() < acc.end_byte {
+            // only create an error node if tree-sitter is skipping non-whitespaces
+            if try_get_spacing(
+                global.sum_byte_length(),
+                acc.end_byte,
+                text,
+                parent.indentation(),
+            )
+            .is_none()
+            {
+                let local = self.make_error(&text[global.sum_byte_length()..acc.end_byte]);
+                acc.push(FullNode {
+                    global: global.simple(),
+                    local,
+                });
+                global.set_sum_byte_length(acc.end_byte);
+            }
+        }
         if let Some(spacing) = spacing {
             let local = self.make_spacing(spacing);
             // debug_assert_ne!(parent.simple.children.len(), 0, "{:?}", parent.simple);
@@ -430,7 +440,7 @@ where
             line_break: self.line_break,
             stores: self.stores,
             md_cache: self.md_cache,
-            more: more,
+            more,
         }
     }
     fn make_spacing(
@@ -604,8 +614,8 @@ where
             log::warn!("ignoring parsing error at the root of the file");
             acc.simple.kind = Type::TranslationUnit;
         }
-        let full_node = self.make(&mut global, acc, label);
-        full_node
+
+        self.make(&mut global, acc, label)
     }
 
     fn build_ana(&mut self, kind: &Type) -> Option<PartialAnalysis> {
