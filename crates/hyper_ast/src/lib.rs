@@ -16,7 +16,20 @@ pub mod types;
 pub mod usage;
 pub mod utils;
 
-pub trait PrimInt: num::PrimInt + num::traits::NumAssign + std::fmt::Debug {}
+pub trait PrimInt: num::PrimInt + num::traits::NumAssign + std::fmt::Debug {
+    #[track_caller]
+    fn cast<T: PrimInt>(&self) -> T {
+        num::cast(*self).unwrap()
+    }
+    #[track_caller]
+    /// use it for Index and IndexMut
+    fn index(&self) -> usize {
+        // perfectly valid use of unwrap,
+        // as it is hard to use Index other than with usize.
+        // If it does not fit a usize you are caller is doing something wrong.
+        num::cast(*self).unwrap()
+    }
+}
 impl<T> PrimInt for T where T: num::PrimInt + num::traits::NumAssign + std::fmt::Debug {}
 
 mod slice_interning;

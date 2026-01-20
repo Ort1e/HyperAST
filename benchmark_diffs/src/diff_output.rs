@@ -67,7 +67,7 @@ impl Tree {
             r#type: t.to_string(),
             label: r
                 .try_get_label()
-                .map(|x| stores.label_store().resolve(&x).to_string())
+                .map(|x| stores.label_store().resolve(x).to_string())
                 .filter(|x| !x.is_empty()),
             file,
             start,
@@ -76,7 +76,7 @@ impl Tree {
     }
 }
 
-impl<'a, HAST> From<(HAST, HAST::IdN, &CompressedTreePath<HAST::Idx>)> for Tree
+impl<HAST> From<(HAST, HAST::IdN, &CompressedTreePath<HAST::Idx>)> for Tree
 where
     HAST: types::HyperAST + Copy,
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -101,7 +101,7 @@ where
             r#type: t.to_string(),
             label: r
                 .try_get_label()
-                .map(|x| stores.label_store().resolve(&x).to_string())
+                .map(|x| stores.label_store().resolve(x).to_string())
                 .filter(|x| !x.is_empty()),
             file,
             start,

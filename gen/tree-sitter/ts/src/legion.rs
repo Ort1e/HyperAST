@@ -1,7 +1,8 @@
-///! fully compress all subtrees from a typescript CST
+//! fully compress all subtrees from a typescript CST
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::TNode;
+use hyperast::store::nodes::legion::subtree_builder;
 use hyperast::tree_gen::{PreResult, ZippedTreeGen};
 use legion::world::EntryRef;
 
@@ -94,7 +95,7 @@ impl Accumulator for Acc {
 }
 
 impl AccIndentation for Acc {
-    fn indentation<'a>(&'a self) -> &'a Spaces {
+    fn indentation(&self) -> &Spaces {
         &self.indentation
     }
 }
@@ -482,9 +483,9 @@ impl<'stores, 'cache, TS: TsEnabledTypeStore> TreeGen for TsTreeGen<'stores, 'ca
             let hashs = hbuilder.build();
             use hyperast::store::nodes::EntityBuilder as _;
 
-            let mut dyn_builder = hyperast::store::nodes::legion::dyn_builder::EntityBuilder::new();
+            let mut dyn_builder = subtree_builder::<TS>(interned_kind);
             dyn_builder.add(interned_kind);
-            dyn_builder.add(hashs.clone());
+            dyn_builder.add(hashs);
             dyn_builder.add(compo::BytesLen(
                 (acc.end_byte - acc.start_byte).try_into().unwrap(),
             ));
@@ -502,6 +503,7 @@ impl<'stores, 'cache, TS: TsEnabledTypeStore> TreeGen for TsTreeGen<'stores, 'ca
                     if x != acc.no_space.len() {
                         dyn_builder.add(NoSpacesCS(acc.no_space.into_boxed_slice()));
                     }
+                    panic!("use CS0<_,1>, CS0<_,2>, and corresponding eq_node");
                 }
             }
             let compressed_node =

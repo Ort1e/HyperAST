@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
+    ops::Range,
 };
 
 use hyperast::compat::HashMap;
@@ -11,6 +12,9 @@ pub trait MappingStore {
     type Dst;
     fn topit(&mut self, left: usize, right: usize);
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn capacity(&self) -> (usize, usize);
     fn has(&self, src: &Self::Src, dst: &Self::Dst) -> bool;
     fn link(&mut self, src: Self::Src, dst: Self::Dst);
@@ -59,6 +63,17 @@ pub trait MultiMappingStore: MappingStore {
     fn is_dst_unique(&self, src: &Self::Dst) -> bool;
 }
 pub type DefaultMultiMappingStore<T> = MultiVecStore<T>;
+
+pub trait MultiRangeMappingStore<Src, Dst>: MappingStore {
+    fn get_src_ranges(&self, dst: &Self::Dst) -> impl Iterator<Item = Range<Src>>
+    where
+        Self::Src: PrimInt,
+        Self::Dst: PrimInt;
+    fn get_dst_ranges(&self, src: &Self::Src) -> impl Iterator<Item = Range<Dst>>
+    where
+        Self::Src: PrimInt,
+        Self::Dst: PrimInt;
+}
 
 /// TODO try using umax
 #[derive(Debug, PartialEq)]
@@ -148,10 +163,16 @@ impl<T: PrimInt + Debug> MappingStore for VecStore<T> {
     }
 
     fn is_src(&self, src: &T) -> bool {
+        if src.to_usize().unwrap() >= self.src_to_dst.len() {
+            return false;
+        }
         self.src_to_dst[src.to_usize().unwrap()] != zero()
     }
 
     fn is_dst(&self, dst: &T) -> bool {
+        if dst.to_usize().unwrap() >= self.dst_to_src.len() {
+            return false;
+        }
         self.dst_to_src[dst.to_usize().unwrap()] != zero()
     }
 
@@ -212,12 +233,39 @@ impl<T: PrimInt + Debug> MonoMappingStore for VecStore<T> {
     }
 }
 
+#[rustfmt::skip]
+mod impl_vec_store_mut {
+    use num_traits::PrimInt; use std::fmt::Debug;
+    use super::{MappingStore, MonoIter, MonoMappingStore, VecStore};
+    impl<T: PrimInt + Debug> MappingStore for &mut VecStore<T> {
+        type Src = T; type Dst = T;
+        fn len(&self) -> usize                         { MappingStore::len(*self)                 }
+        fn capacity(&self) -> (usize, usize)           { MappingStore::capacity(*self)            }
+        fn link(&mut self, src: T, dst: T)             { MappingStore::link(*self, src, dst);     }
+        fn cut(&mut self, src: T, dst: T)              { MappingStore::cut(*self, src, dst);      }
+        fn is_src(&self, src: &T) -> bool              { MappingStore::is_src(*self, src)         }
+        fn is_dst(&self, dst: &T) -> bool              { MappingStore::is_dst(*self, dst)         }
+        fn topit(&mut self, left: usize, right: usize) { MappingStore::topit(*self, left, right); }
+        fn has(&self, src: &T, dst: &T) -> bool        { MappingStore::has(*self, src, dst)       }
+    }
+    impl<T: PrimInt + Debug> MonoMappingStore for &mut VecStore<T> {
+        type Iter<'a> = MonoIter<'a, T, T> where Self: 'a;
+        fn iter(&self) -> Self::Iter<'_>          { MonoMappingStore::iter(*self)                   }
+        fn get_src_unchecked(&self, dst: &T) -> T { MonoMappingStore::get_src_unchecked(*self, dst) }
+        fn get_dst_unchecked(&self, src: &T) -> T { MonoMappingStore::get_dst_unchecked(*self, src) }
+        fn get_src(&self, dst: &T) -> Option<T>   { MonoMappingStore::get_src(*self, dst)           }
+        fn get_dst(&self, src: &T) -> Option<T>   { MonoMappingStore::get_dst(*self, src)           }
+        fn link_if_both_unmapped(&mut self, t1: T, t2: T) -> bool {
+                                             MonoMappingStore::link_if_both_unmapped(*self, t1, t2) }
+    }
+}
+
 pub struct MonoIter<'a, T: 'a + PrimInt, U: 'a> {
     v: std::iter::Enumerate<core::slice::Iter<'a, U>>,
     _phantom: std::marker::PhantomData<*const T>,
 }
 
-impl<'a, T: PrimInt, U: PrimInt> Iterator for MonoIter<'a, T, U> {
+impl<T: PrimInt, U: PrimInt> Iterator for MonoIter<'_, T, U> {
     type Item = (T, U);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -330,10 +378,16 @@ impl<T: PrimInt> MappingStore for MultiVecStore<T> {
     }
 
     fn is_src(&self, src: &T) -> bool {
+        if src.to_usize().unwrap() >= self.src_to_dsts.len() {
+            return false;
+        }
         self.src_to_dsts[src.to_usize().unwrap()].is_some()
     }
 
     fn is_dst(&self, dst: &T) -> bool {
+        if dst.to_usize().unwrap() >= self.dst_to_srcs.len() {
+            return false;
+        }
         self.dst_to_srcs[dst.to_usize().unwrap()].is_some()
     }
 
@@ -345,11 +399,11 @@ impl<T: PrimInt> MappingStore for MultiVecStore<T> {
     fn has(&self, src: &Self::Src, dst: &Self::Dst) -> bool {
         self.src_to_dsts[src.to_usize().unwrap()]
             .as_ref()
-            .and_then(|v| Some(v.contains(dst)))
+            .map(|v| v.contains(dst))
             .unwrap_or(false)
             && self.dst_to_srcs[dst.to_usize().unwrap()]
                 .as_ref()
-                .and_then(|v| Some(v.contains(src)))
+                .map(|v| v.contains(src))
                 .unwrap_or(false)
     }
 }
@@ -365,25 +419,23 @@ impl<T: PrimInt> MultiMappingStore for MultiVecStore<T> {
         T: 'a;
     fn get_srcs(&self, dst: &Self::Dst) -> &[Self::Src] {
         self.dst_to_srcs[cast::<_, usize>(*dst).unwrap()]
-            .as_ref()
-            .and_then(|x| Some(x.as_slice()))
+            .as_deref()
             .unwrap_or(&[])
     }
 
     fn get_dsts(&self, src: &Self::Src) -> &[Self::Dst] {
         self.src_to_dsts[cast::<_, usize>(*src).unwrap()]
-            .as_ref()
-            .and_then(|x| Some(x.as_slice()))
+            .as_deref()
             .unwrap_or(&[])
     }
 
-    fn all_mapped_srcs(&self) -> Iter<Self::Src> {
+    fn all_mapped_srcs(&self) -> Iter<'_, Self::Src> {
         Iter {
             v: self.src_to_dsts.iter().enumerate(),
         }
     }
 
-    fn all_mapped_dsts(&self) -> Iter<Self::Dst> {
+    fn all_mapped_dsts(&self) -> Iter<'_, Self::Dst> {
         Iter {
             v: self.dst_to_srcs.iter().enumerate(),
         }
@@ -398,18 +450,83 @@ impl<T: PrimInt> MultiMappingStore for MultiVecStore<T> {
     }
 }
 
+impl<Dsrc, Ddst, M: MappingStore> MappingStore for super::Mapping<Dsrc, Ddst, M> {
+    type Src = M::Src;
+
+    type Dst = M::Dst;
+
+    fn topit(&mut self, _left: usize, _right: usize) {
+        todo!()
+    }
+
+    fn len(&self) -> usize {
+        todo!()
+    }
+
+    fn capacity(&self) -> (usize, usize) {
+        todo!()
+    }
+
+    fn has(&self, _src: &Self::Src, _dst: &Self::Dst) -> bool {
+        todo!()
+    }
+
+    fn link(&mut self, _src: Self::Src, _dst: Self::Dst) {
+        todo!()
+    }
+
+    fn cut(&mut self, _src: Self::Src, _dst: Self::Dst) {
+        todo!()
+    }
+
+    fn is_src(&self, src: &Self::Src) -> bool {
+        self.mappings.is_src(src)
+    }
+
+    fn is_dst(&self, dst: &Self::Dst) -> bool {
+        self.mappings.is_dst(dst)
+    }
+}
+impl<Dsrc, Ddst, M: MultiMappingStore, Src, Dst> MultiRangeMappingStore<Src, Dst>
+    for super::Mapping<Dsrc, Ddst, M>
+where
+    Ddst: crate::decompressed_tree_store::RawContiguousDescendants<Self::Dst, Dst>,
+    Dsrc: crate::decompressed_tree_store::RawContiguousDescendants<Self::Src, Src>,
+{
+    fn get_src_ranges(&self, dst: &Self::Dst) -> impl Iterator<Item = Range<Src>>
+    where
+        Self::Src: PrimInt,
+        Self::Dst: PrimInt,
+    {
+        self.mappings
+            .get_srcs(dst)
+            .iter()
+            .map(|x| self.src_arena.range(x))
+    }
+    fn get_dst_ranges(&self, src: &Self::Src) -> impl Iterator<Item = Range<Dst>>
+    where
+        Self::Src: PrimInt,
+        Self::Dst: PrimInt,
+    {
+        self.mappings
+            .get_dsts(src)
+            .iter()
+            .map(|x| self.dst_arena.range(x))
+    }
+}
+
 pub struct Iter<'a, T: 'a> {
     v: std::iter::Enumerate<core::slice::Iter<'a, Option<Vec<T>>>>,
 }
 
-impl<'a, T: PrimInt> Iterator for Iter<'a, T> {
+impl<T: PrimInt> Iterator for Iter<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut a = self.v.next();
         loop {
             if let Some((i, x)) = a {
-                if let Some(_) = x {
+                if x.is_some() {
                     return Some(cast::<_, T>(i).unwrap());
                 } else {
                     a = self.v.next();
@@ -443,8 +560,8 @@ pub struct DisplayVecStore<'a, 'b, T, Src, Dst> {
     dst_store: &'b Dst,
 }
 
-impl<'a, 'b, T: PrimInt + TryFrom<usize>, Src, Dst, D: Display> Display
-    for DisplayVecStore<'a, 'b, T, Src, Dst>
+impl<T: PrimInt + TryFrom<usize>, Src, Dst, D: Display> Display
+    for DisplayVecStore<'_, '_, T, Src, Dst>
 where
     Src: Fn(T) -> D,
     Dst: Fn(T) -> D,
@@ -614,11 +731,110 @@ pub struct HMIter<'a, T: 'a + PrimInt, U: 'a> {
     v: hyperast::compat::hash_map::Iter<'a, T, U>,
 }
 
-impl<'a, T: PrimInt, U: PrimInt> Iterator for HMIter<'a, T, U> {
+impl<T: PrimInt, U: PrimInt> Iterator for HMIter<'_, T, U> {
     type Item = (T, U);
 
     fn next(&mut self) -> Option<Self::Item> {
         let (x, y) = self.v.next()?;
         Some((*x, *y))
+    }
+}
+
+#[derive(Debug)]
+pub struct MultiHashStore<T> {
+    pub src_to_dst: Vec<HashMap<T, T>>,
+    pub dst_to_src: Vec<HashMap<T, T>>,
+}
+
+impl<T> Default for MultiHashStore<T> {
+    fn default() -> Self {
+        Self {
+            src_to_dst: vec![Default::default()],
+            dst_to_src: vec![Default::default()],
+        }
+    }
+}
+
+impl<T: PrimInt + Debug> Clone for MultiHashStore<T> {
+    fn clone(&self) -> Self {
+        Self {
+            src_to_dst: self.src_to_dst.clone(),
+            dst_to_src: self.dst_to_src.clone(),
+        }
+    }
+}
+
+impl<T: PrimInt + Debug + Hash> MappingStore for MultiHashStore<T> {
+    type Src = T;
+    type Dst = T;
+
+    fn len(&self) -> usize {
+        self.src_to_dst.len()
+    }
+
+    fn capacity(&self) -> (usize, usize) {
+        (self.src_to_dst.len(), self.dst_to_src.len())
+    }
+
+    fn link(&mut self, src: T, dst: T) {
+        fn aux<T: Hash + Eq>(vec: &mut Vec<HashMap<T, T>>, target: T, other: T) {
+            let mut i = 0;
+            while let Some(o) = vec[i].get(&target) {
+                if *o == other {
+                    return;
+                }
+                i += 1;
+                if i >= vec.len() {
+                    vec.push(Default::default());
+                }
+            }
+            vec[i].insert(target, other);
+        }
+        aux(&mut self.src_to_dst, src, dst);
+        aux(&mut self.dst_to_src, dst, src);
+    }
+
+    fn cut(&mut self, src: T, dst: T) {
+        fn aux<T: PrimInt + Hash>(vec: &mut [HashMap<T, T>], target: T, other: T) {
+            let mut i = 0;
+            let len = vec.len();
+            let _j = loop {
+                use hyperast::compat::hash_map::Entry;
+                let Entry::Occupied(entry) = vec[i].entry(target) else {
+                    return;
+                };
+                if &other == entry.get() {
+                    if i + 1 >= len {
+                        entry.remove();
+                        return;
+                    }
+                    break i;
+                }
+                i += 1;
+                if i >= len {
+                    return;
+                }
+            };
+            todo!("continue implementation")
+        }
+        aux(&mut self.src_to_dst, src, dst);
+        aux(&mut self.dst_to_src, dst, src);
+    }
+
+    fn is_src(&self, _src: &T) -> bool {
+        todo!()
+        // self.src_to_dst.contains_key(src)
+    }
+
+    fn is_dst(&self, _dst: &T) -> bool {
+        todo!()
+        // self.dst_to_src.contains_key(dst)
+    }
+
+    fn topit(&mut self, _left: usize, _right: usize) {}
+
+    fn has(&self, _src: &Self::Src, _dst: &Self::Src) -> bool {
+        todo!()
+        // self.src_to_dst.contains_key(src) && self.dst_to_src.contains_key(dst)
     }
 }

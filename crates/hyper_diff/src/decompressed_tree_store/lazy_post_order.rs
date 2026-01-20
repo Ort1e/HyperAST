@@ -122,7 +122,7 @@ where
     //     + NodeStore<T::TreeId>,
         {
             debug_assert!(
-                self.id_parent.len() == 0 || self.id_parent[x.to_usize().unwrap()] != zero(),
+                self.id_parent.is_empty() || self.id_parent[x.to_usize().unwrap()] != zero(),
                 "x has not been initialized"
             );
             let a = self.original(x);
@@ -138,7 +138,7 @@ where
             while i > 0 {
                 i -= 1;
                 let s = self._size(&c);
-                c = c - s;
+                c -= s;
                 r[i] = c;
             }
             assert_eq!(
@@ -169,7 +169,7 @@ where
         }
 
         fn has_parent(&self, id: &IdD) -> bool {
-            self.parent(id) != None
+            self.parent(id).is_some()
         }
 
         fn position_in_parent<Idx: PrimInt>(&self, c: &IdD) -> Option<Idx> {
@@ -184,7 +184,7 @@ where
             }
         }
         fn path<Idx: PrimInt>(&self, parent: &IdD, descendant: &IdD) -> Vec<Idx> {
-            let ref this = self;
+            let this = self;
             let mut idxs: Vec<Idx> = vec![];
             let mut curr = *descendant;
             while &curr != parent {
@@ -240,6 +240,10 @@ where
         fn tree(&self, id: &IdD) -> HAST::IdN {
             self.id_compressed[id.to_usize().unwrap()].clone()
         }
+
+        fn has_children(&self, id: &IdD) -> bool {
+            self.lld(id) != *id
+        }
     }
 
     impl<HAST: HyperAST + Copy, IdD: PrimInt + Debug> PostOrderIterable<HAST, IdD>
@@ -282,7 +286,7 @@ where
     }
 
     fn has_parent(&self, id: &IdD) -> bool {
-        self.parent(id) != None
+        self.parent(id).is_some()
     }
 
     fn position_in_parent<Idx: PrimInt>(&self, c: &IdD) -> Option<Idx> {
@@ -296,7 +300,7 @@ where
         }
     }
     fn path<Idx: PrimInt>(&self, parent: &IdD, descendant: &IdD) -> Vec<Idx> {
-        let ref this = self;
+        let this = self;
         let mut idxs: Vec<Idx> = vec![];
         let mut curr = *descendant;
         while &curr != parent {
@@ -350,7 +354,7 @@ pub struct IterParents<'a, IdD> {
     pub(super) id_parent: &'a [IdD],
 }
 
-impl<'a, IdD: PrimInt> Iterator for IterParents<'a, IdD> {
+impl<IdD: PrimInt> Iterator for IterParents<'_, IdD> {
     type Item = IdD;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -358,8 +362,24 @@ impl<'a, IdD: PrimInt> Iterator for IterParents<'a, IdD> {
             return None;
         }
         let r = self.id_parent[self.id.to_usize().unwrap()];
-        self.id = r.clone();
+        self.id = r;
         Some(r)
+    }
+}
+
+impl<IdN, IdD: PrimInt + Shallow<IdS>, IdS> super::RawContiguousDescendants<IdD, IdS>
+    for LazyPostOrder<IdN, IdD>
+{
+    fn range(&self, id: &IdD) -> std::ops::Range<IdS> {
+        self.llds[(*id).to_usize().unwrap()].to_shallow()..id.to_shallow()
+    }
+}
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Shallow<IdS>, IdS>
+    super::RawContiguousDescendants<IdD, IdS>
+    for Decompressible<HAST, &mut LazyPostOrder<HAST::IdN, IdD>>
+{
+    fn range(&self, id: &IdD) -> std::ops::Range<IdS> {
+        self.decomp.range(id)
     }
 }
 
@@ -374,6 +394,10 @@ where
 
     fn tree(&self, id: &IdD) -> HAST::IdN {
         self.id_compressed[id.to_usize().unwrap()].clone()
+    }
+
+    fn has_children(&self, id: &IdD) -> bool {
+        self.lld(id) != *id
     }
 }
 
@@ -403,6 +427,9 @@ impl<IdN, IdD: PrimInt> LazyPostOrder<IdN, IdD> {
     pub fn len(&self) -> usize {
         self._len()
     }
+    pub fn is_empty(&self) -> bool {
+        self._len() == 0
+    }
 
     pub fn root(&self) -> IdD {
         cast(self._len() - 1).unwrap()
@@ -415,7 +442,7 @@ impl<IdN: Clone, IdD: PrimInt> LazyPostOrder<IdN, IdD> {
     }
 }
 
-impl<'a, IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
+impl<IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
     // #[time("warn")]
     pub fn complete<HAST: HyperAST<IdN = IdN> + Copy>(
         mut self,
@@ -442,7 +469,7 @@ impl<'a, IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
     }
 }
 
-impl<'a, HAST: HyperAST + Copy, IdD: PrimInt + Shallow<IdD> + Debug>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Shallow<IdD> + Debug>
     Decompressible<HAST, &mut LazyPostOrder<HAST::IdN, IdD>>
 where
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -463,7 +490,7 @@ where
         let c_n = &cs[cast(i).unwrap()];
         let offset = c.to_usize().unwrap();
         self.id_compressed[offset] = c_n.clone();
-        self.id_parent[offset] = x.clone();
+        self.id_parent[offset] = *x;
         let r = cs
             .before(cs.child_count() - one())
             .iter_children()
@@ -493,12 +520,12 @@ where
                 // );
                 let Some(rem) = rem else {
                     if c > zero() {
-                        c = c - one();
+                        c -= one();
                     }
                     break;
                 };
                 s.push((c, rem));
-                c = c - one();
+                c -= one();
             }
             let mut next = None;
             loop {
@@ -531,7 +558,7 @@ where
     }
 
     pub fn decompress_descendants(&mut self, x: &IdD) {
-        let mut q = vec![x.clone()];
+        let mut q = vec![*x];
         while let Some(x) = q.pop() {
             assert!(self.id_parent[x.to_usize().unwrap()] != zero());
             q.extend(self.decompress_children(&x));
@@ -541,7 +568,7 @@ where
     // TODO remove
     pub fn go_through_descendants(&mut self, x: &IdD) {
         let store = self.hyperast;
-        let mut q = vec![x.clone()];
+        let mut q = vec![*x];
         while let Some(x) = q.pop() {
             assert!(self.id_parent[x.to_usize().unwrap()] != zero());
             assert_eq!(
@@ -553,22 +580,22 @@ where
     }
     pub fn complete_subtree(&mut self, x: &IdD) {
         assert!(
-            self.parent(x).map_or(true, |p| p != zero()),
+            self.parent(x).is_none_or(|p| p != zero()),
             "x is not initialized"
         );
         // self.decompress_descendants_continuous(store, &x);
         // // self.go_through_descendants(store, &x);
         let first = self.first_descendant(x);
-        let mut i = x.clone();
+        let mut i = *x;
         while i > first {
             // dbg!(i);
             // dbg!(self.parent(&i));
             // dbg!(self.lld(&i));
             if self.id_parent[i.to_usize().unwrap() - 1] != zero() {
-                i = i - one();
+                i -= one();
             } else {
                 assert!(
-                    self.parent(&i).map_or(true, |p| p != zero()),
+                    self.parent(&i).is_none_or(|p| p != zero()),
                     "i is not initialized"
                 );
 
@@ -608,7 +635,7 @@ where
     }
 }
 
-impl<'a, HAST: HyperAST + Copy, IdD: PrimInt + Debug> super::DecompressedSubtree<HAST::IdN>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Debug> super::DecompressedSubtree<HAST::IdN>
     for Decompressible<HAST, LazyPostOrder<HAST::IdN, IdD>>
 where
     for<'t> <HAST as AstLending<'t>>::RT: WithStats,
@@ -679,7 +706,7 @@ where
 
     fn children(&self, x: &IdD) -> Vec<IdD> {
         debug_assert!(
-            self.id_parent.len() == 0 || self.id_parent[x.to_usize().unwrap()] != zero(),
+            self.id_parent.is_empty() || self.id_parent[x.to_usize().unwrap()] != zero(),
             "x has not been initialized"
         );
         let a = self.original(x);
@@ -708,7 +735,7 @@ where
     }
 }
 
-impl<'d, IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
+impl<IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
     pub fn child_decompressed<HAST>(
         mut self,
         store: HAST,
@@ -732,7 +759,7 @@ impl<'d, IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
                 .get(..(d + one()).to_usize().unwrap())
                 .expect("no child corresponding to given path");
             for x in cs {
-                z = z + self._size(x); //Self::size2(store, x);
+                z += self._size(x); //Self::size2(store, x);
             }
             let dec = Decompressible {
                 decomp: &mut self,
@@ -744,7 +771,7 @@ impl<'d, IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
     }
 }
 
-impl<'d, HAST: HyperAST + Copy, IdD: PrimInt + Shallow<IdD> + Debug>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Shallow<IdD> + Debug>
     Decompressible<HAST, &mut LazyPostOrder<HAST::IdN, IdD>>
 where
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -759,7 +786,7 @@ where
                 .get(..(d + one()).to_usize().unwrap())
                 .expect("no child corresponding to given path");
             for x in cs {
-                z = z + self._size(x); //Self::size2(store, x);
+                z += self._size(x); //Self::size2(store, x);
             }
             r = self.first_descendant(&r) + cast(z).unwrap() - one();
         }
@@ -787,7 +814,7 @@ where
     fn decompress_children(&mut self, x: &Self::IdD) -> Vec<Self::IdD> {
         let store = self.hyperast;
         debug_assert!(
-            self.id_parent.len() == 0 || self.id_parent[x.to_usize().unwrap()] != zero(),
+            self.id_parent.is_empty() || self.id_parent[x.to_usize().unwrap()] != zero(),
             "x has not been initialized"
         );
         let node = store.resolve(&self.original(x));
@@ -807,12 +834,12 @@ where
             let offset = c.to_usize().unwrap();
             r[i] = c;
             self.id_compressed[offset] = c_n.clone();
-            self.id_parent[offset] = x.clone();
+            self.id_parent[offset] = *x;
             self.llds[offset] = c + one() - cast(s).unwrap();
             if i == 0 {
                 break;
             }
-            c = c - cast(s).unwrap();
+            c -= cast(s).unwrap();
             i -= 1;
         }
 
@@ -841,7 +868,7 @@ where
                 }
                 break;
             }
-            p = p + one();
+            p += one();
         }
         while &p > x {
             debug_assert!(&self.lld(&p) <= x);
@@ -865,7 +892,7 @@ where
 
 impl<IdN, IdD: PrimInt + Shallow<IdD> + Debug> LazyPostOrder<IdN, IdD> {
     fn is_decompressed(&self, x: &IdD) -> bool {
-        self.id_parent.len() == 0 || self.id_parent[x.to_usize().unwrap()] != zero()
+        self.id_parent.is_empty() || self.id_parent[x.to_usize().unwrap()] != zero()
     }
 }
 
@@ -988,7 +1015,7 @@ where
     }
 }
 
-impl<'a, HAST: HyperAST + Copy, IdD: PrimInt + Eq>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Eq>
     Decompressible<HAST, &mut LazyPostOrder<HAST::IdN, IdD>>
 where
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -1010,16 +1037,22 @@ where
     IdN: types::NodeId<IdN = IdN>,
 {
     fn size2<HAST: HyperAST<IdN = IdN> + Copy>(&self, store: HAST, x: &IdN) -> usize {
-        let tmp = store.resolve(x);
-        let Some(cs) = tmp.children() else {
-            return 1;
-        };
+        fn size<HAST: HyperAST + Copy>(store: HAST, x: &HAST::IdN) -> usize
+        where
+            HAST::IdN: types::NodeId<IdN = HAST::IdN>,
+        {
+            let tmp = store.resolve(x);
+            let Some(cs) = tmp.children() else {
+                return 1;
+            };
 
-        let mut z = 0;
-        for x in cs.iter_children() {
-            z += self.size2(store, &x);
+            let mut z = 0;
+            for x in cs.iter_children() {
+                z += size(store, &x);
+            }
+            z + 1
         }
-        z + 1
+        size(store, x)
     }
 }
 

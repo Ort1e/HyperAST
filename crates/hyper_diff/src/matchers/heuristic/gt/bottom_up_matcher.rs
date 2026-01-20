@@ -2,7 +2,7 @@ use crate::decompressed_tree_store::{DecompressedTreeStore, DecompressedWithPare
 use crate::matchers::{Mapper, mapping_store::MonoMappingStore};
 use crate::utils::sequence_algorithms::longest_common_subsequence;
 use hyperast::PrimInt;
-use hyperast::types::{self, HyperAST, NodeId, NodeStore, TypeStore, WithHashs};
+use hyperast::types::{self, HyperAST, LendT, NodeId, NodeStore, TypeStore, WithHashs};
 use num_traits::ToPrimitive;
 use std::{collections::HashMap, hash::Hash};
 use types::Tree;
@@ -32,10 +32,10 @@ where
         let t = self.hyperast.resolve_type(s);
         for mut seed in seeds {
             while let Some(parent) = self.dst_arena.parent(&seed) {
-                if visited[parent.to_usize().unwrap()] {
+                if visited[parent.index()] {
                     break;
                 }
-                visited.set(parent.to_usize().unwrap(), true);
+                visited.set(parent.index(), true);
 
                 let p = &self.dst_arena.original(&parent);
                 if self.hyperast.resolve_type(p) == t
@@ -65,7 +65,7 @@ where
         let t = self.hyperast.resolve_type(s);
         for seed in seeds {
             while let Some(parent) = self.src_arena.parent(&seed) {
-                if visited[parent.to_usize().unwrap()] {
+                if visited[parent.index()] {
                     break;
                 }
                 visited.set(parent.to_usize().unwrap(), true);
@@ -93,15 +93,15 @@ where
     <HAST::TS as TypeStore>::Ty: Copy + Send + Sync + Eq + Hash,
     M::Src: PrimInt,
     M::Dst: PrimInt,
-    for<'t> <HAST as types::AstLending<'t>>::RT: WithHashs,
+    for<'t> LendT<'t, HAST>: WithHashs,
     HAST::Label: Eq,
     HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     pub fn last_chance_match_histogram(&mut self, src: &M::Src, dst: &M::Dst) {
         self.lcs_equal_matching(src, dst);
         self.lcs_structure_matching(src, dst);
-        let src_is_root = self.src_arena.parent(&src).is_none();
-        let dst_is_root = self.dst_arena.parent(&dst).is_none();
+        let src_is_root = self.src_arena.parent(src).is_none();
+        let dst_is_root = self.dst_arena.parent(dst).is_none();
         if src_is_root && dst_is_root {
             self.histogram_matching(src, dst);
         } else if !(src_is_root || dst_is_root) {
@@ -167,11 +167,10 @@ where
             .filter(|x| !self.mappings.is_dst(x))
             .collect::<Vec<_>>();
 
-        let lcs = longest_common_subsequence::<_, _, usize, _>(
-            &src_children,
-            &dst_children,
-            |src, dst| cmp(self, src, dst),
-        );
+        let lcs: Vec<(usize, usize)> =
+            longest_common_subsequence(&src_children, &dst_children, |src, dst| {
+                cmp(self, src, dst)
+            });
         for x in lcs {
             let t1 = src_children.get(x.0).unwrap();
             let t2 = dst_children.get(x.1).unwrap();
@@ -238,20 +237,20 @@ where
             .src_arena
             .children(src)
             .into_iter()
-            .filter(|child| !self.mappings.is_src(&child))
+            .filter(|child| !self.mappings.is_src(child))
             .fold(HashMap::new(), |mut acc, child| {
                 let t = self.hyperast.resolve_type(&self.src_arena.original(&child));
-                acc.entry(t).or_insert_with(Vec::new).push(child);
+                acc.entry(t).or_default().push(child);
                 acc
             });
         let dst_histogram: HashMap<_, Vec<M::Dst>> = self
             .dst_arena
             .children(dst)
             .into_iter()
-            .filter(|child| !self.mappings.is_dst(&child))
+            .filter(|child| !self.mappings.is_dst(child))
             .fold(HashMap::new(), |mut acc, child| {
                 let t = self.hyperast.resolve_type(&self.dst_arena.original(&child));
-                acc.entry(t).or_insert_with(Vec::new).push(child);
+                acc.entry(t).or_default().push(child);
                 acc
             });
 
@@ -267,6 +266,28 @@ where
                 let dst = dst_histogram[t][0];
                 self.mappings.link_if_both_unmapped(src, dst);
                 self.last_chance_match_histogram(&src, &dst);
+            }
+        }
+    }
+
+    pub(crate) fn apply_mappings<MZs: MonoMappingStore<Src = M::Src, Dst = M::Dst> + Default>(
+        &mut self,
+        src_offset: M::Src,
+        dst_offset: M::Dst,
+        mappings: MZs,
+    ) {
+        for (i, t) in mappings.iter() {
+            use num_traits::cast;
+            //remapping
+            let src: M::Src = src_offset + cast(i).unwrap();
+            let dst: M::Dst = dst_offset + cast(t).unwrap();
+            // use it
+            if !self.mappings.is_src(&src) && !self.mappings.is_dst(&dst) {
+                let tsrc = self.hyperast.resolve_type(&self.src_arena.original(&src));
+                let tdst = self.hyperast.resolve_type(&self.dst_arena.original(&dst));
+                if tsrc == tdst {
+                    self.mappings.link(src, dst);
+                }
             }
         }
     }

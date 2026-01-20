@@ -1,4 +1,4 @@
-use re_ui::{ContextExt as _, DesignTokens, UiExt as _};
+use re_ui::{ContextExt as _, UiExt as _};
 
 use crate::{app::types, command::UICommand};
 
@@ -12,12 +12,12 @@ impl crate::HyperApp {
     pub(crate) fn top_bar(&mut self, egui_ctx: &egui::Context) {
         let top_bar_style = egui_ctx.top_bar_style(cfg!(not(target_arch = "wasm32")));
 
-        let mut frame_style = DesignTokens::top_panel_frame();
+        let mut frame_style = re_ui::design_tokens_of(egui::Theme::Dark).top_panel_frame();
         if !egui_ctx.style().visuals.dark_mode {
-            frame_style.fill = egui::Color32::WHITE; //egui::Visuals::light().window_fill;
+            frame_style.fill = egui::Color32::WHITE;
             frame_style.stroke = egui::Visuals::light().window_stroke;
             frame_style.stroke.color = egui::Color32::WHITE;
-            frame_style.shadow.color = egui::Color32::WHITE; //egui::Visuals::light().window_shadow.color;
+            frame_style.shadow.color = egui::Color32::WHITE;
         }
         egui::TopBottomPanel::top("top_bar")
             .frame(frame_style)
@@ -43,8 +43,7 @@ impl crate::HyperApp {
                     }
                 }
 
-                egui::menu::bar(ui, |ui| {
-                    // ui.set_height(top_bar_style.height);
+                egui::MenuBar::new().ui(ui, |ui| {
                     ui.add_space(top_bar_style.indent);
                     let rect = ui.available_rect_before_wrap();
 
@@ -56,12 +55,11 @@ impl crate::HyperApp {
                         .add(egui::Label::new(title).sense(egui::Sense::click()))
                         .clicked()
                     {
-                        if let Some(tid) = self
+                        if let Some((tid, _)) = self
                             .tabs
-                            .iter()
-                            .position(|x| x == &super::Tab::MarkdownStatic(0))
+                            .enumerate()
+                            .find(|(_, x)| *x == &super::Tab::MarkdownStatic(0))
                         {
-                            let tid = tid as u16;
                             if let Some(child) = self.tree.tiles.find_pane(&tid) {
                                 if !self.tree.is_visible(child)
                                     || !self.tree.active_tiles().contains(&child)
@@ -82,8 +80,7 @@ impl crate::HyperApp {
                                 };
                             }
                         } else if self.maximized.is_none() {
-                            let tid = self.tabs.len() as u16;
-                            self.tabs.push(super::Tab::MarkdownStatic(0));
+                            let tid = self.tabs.push(super::Tab::MarkdownStatic(0));
                             if self.maximized.is_none() {
                                 let child = self.tree.tiles.insert_pane(tid);
                                 match self.tree.tiles.get_mut(self.tree.root.unwrap()) {
@@ -102,7 +99,7 @@ impl crate::HyperApp {
                         ui.add_space(50.0);
                         ui.visuals_mut().selection.bg_fill = ui.visuals().widgets.active.bg_fill;
                         ui.visuals_mut().selection.stroke.color =
-                            ui.visuals().widgets.active.bg_fill;
+                            ui.visuals().widgets.active.fg_stroke.color;
                         ui.visuals_mut().selection.stroke.width *= 4.0;
                         for s in <types::SelectedConfig as strum::IntoEnumIterator>::iter() {
                             let text = s.title();
@@ -122,7 +119,7 @@ impl crate::HyperApp {
                                             let tabs = s.default_layout();
                                             let tree = egui_tiles::Tree::new_grid(
                                                 "my_tree",
-                                                (0..tabs.len() as u16).collect(),
+                                                tabs.enumerate().map(|(i, _)| i).collect(),
                                             );
                                             (tabs, tree)
                                         });
@@ -137,9 +134,8 @@ impl crate::HyperApp {
                         ui.add_space(50.0);
                     };
                     ui.visuals_mut().clip_rect_margin = 0.0;
-                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(max_rect), |ui| {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(max_rect), |ui| {
                         egui::ScrollArea::horizontal()
-                            // .horizontal_scroll_offset(max_rect.left() - rect.left() + 50.0)
                             .auto_shrink(false)
                             .hscroll(true)
                             .scroll_bar_visibility(
@@ -147,7 +143,6 @@ impl crate::HyperApp {
                             )
                             .show_viewport(ui, add_contents);
                     });
-                    // let max_rect = max_rect.expand2((5.0, 0.0).into());
                     let (rect, _) = max_rect.split_left_right_at_fraction(0.15);
                     let mut mesh = egui::Mesh::default();
                     mesh.colored_vertex(rect.left_bottom(), frame_style.fill);
@@ -172,7 +167,6 @@ impl crate::HyperApp {
 
                     ui.add_space(10.0);
                     use crate::command::UICommandSender;
-                    // #[cfg(hyperast_experimental)]
                     // if ui
                     //     .add(ui.small_icon_button_widget(&re_ui::icons::ADD))
                     //     .on_hover_text("new blank layout")
@@ -192,8 +186,6 @@ impl crate::HyperApp {
                 });
             });
     }
-
-    // #[cfg(not(target_arch = "wasm32"))]
 }
 
 fn top_bar_ui(app: &mut crate::HyperApp, ui: &mut egui::Ui) {
@@ -211,7 +203,7 @@ fn top_bar_ui(app: &mut crate::HyperApp, ui: &mut egui::Ui) {
             ui.add_space(16.0);
         }
 
-        re_ui::notifications::notification_toggle_button(ui, &mut app.notifs);
+        app.notifs.notification_toggle_button(ui);
         ui.medium_icon_toggle_button(&re_ui::icons::RIGHT_PANEL_TOGGLE, &mut app.show_right_panel);
         ui.medium_icon_toggle_button(
             &re_ui::icons::BOTTOM_PANEL_TOGGLE,
@@ -227,7 +219,7 @@ fn top_bar_ui(app: &mut crate::HyperApp, ui: &mut egui::Ui) {
         });
         egui::global_theme_preference_switch(ui);
 
-        let resp = ui.toggle_value(&mut app.persistance, "persistance");
+        let resp = ui.toggle_value(&mut app.persistence, "persistance");
         if resp.changed() {
             app.save_interval = std::time::Duration::from_secs(0);
         }

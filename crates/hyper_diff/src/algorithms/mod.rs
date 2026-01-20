@@ -9,13 +9,14 @@ pub mod change_distiller_partial_lazy;
 pub mod gumtree;
 pub mod gumtree_hybrid;
 pub mod gumtree_hybrid_lazy;
-pub mod gumtree_hybrid_partial_lazy;
 pub mod gumtree_lazy;
 pub mod gumtree_partial_lazy;
 pub mod gumtree_simple;
 pub mod gumtree_simple_lazy;
 pub mod gumtree_stable;
+pub mod gumtree_stable_hybrid_lazy;
 pub mod gumtree_stable_lazy;
+pub mod gumtree_stable_simple_lazy;
 pub mod xy;
 
 type DefaultMetric = <LatMem as RuntimeMeasurement>::M;
@@ -89,18 +90,25 @@ impl<D: RuntimeMetric, P> Phased<Prepared<D::M, D>, P> {
             },
         }
     }
-    fn stop_then_prepare(self) -> Phased<Prepared<D, ()>, Phased<Prepared<D::M>, P>> {
+    fn stop_then_prepare(self) -> Phased2<Prepared<D, ()>, D::M, P> {
         self.next_p(|| Prepared::<D>::prepare())
     }
-    fn stop_then_skip_prepare(self) -> Phased<Prepared<D::M, D>, Phased<Prepared<D::M>, P>> {
+    fn stop_then_skip_prepare(self) -> Phased2<Prepared<D::M, D>, D::M, P> {
         self.next_p(|| Prepared::<D>::nothing())
     }
 }
 
+type Phased2<I, M, P> = Phased<I, Phased<Prepared<M>, P>>;
+
 impl<P1: RuntimeMeasurement, P2: RuntimeMeasurement> Phased<P1, P2> {
     pub fn sum<T: 'static + Clone + std::ops::Add<Output = T>>(&self) -> Option<T> {
-        let (a, b) = self.current.sum::<T>().zip(self.prev.sum::<T>())?;
-        Some(a.clone() + b.clone())
+        let a = self.current.sum::<T>();
+        let b = self.prev.sum::<T>();
+        if let Some(a) = a {
+            Some(if let Some(b) = b { a + b } else { a })
+        } else {
+            b
+        }
     }
 }
 impl<P1: RuntimeMeasurement, P2: RuntimeMeasurement> RuntimeMeasurement for Phased<P1, P2> {
@@ -201,17 +209,20 @@ impl<M1: RuntimeMeasurement, M2: RuntimeMeasurement> RuntimeMeasurement for (M1,
             for DisplayTuple<'_, (M1, M2)>
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                self.0.0.display().fmt(f)?;
-                self.0.1.display().fmt(f)?;
-                Ok(())
+                write!(f, "({} ; {})", self.0.0.display(), self.0.1.display())
             }
         }
         DisplayTuple(self)
     }
 
     fn sum<D: 'static + Clone + std::ops::Add<Output = D>>(&self) -> Option<D> {
-        let (a, b) = self.0.sum::<D>().zip(self.0.sum::<D>())?;
-        Some(a.clone() + b.clone())
+        let a = self.0.sum::<D>();
+        let b = self.1.sum::<D>();
+        if let Some(a) = a {
+            Some(if let Some(b) = b { a + b } else { a })
+        } else {
+            b
+        }
     }
 }
 
@@ -303,7 +314,12 @@ impl RuntimeMeasurement for AllocatedMemory {
 
 impl std::fmt::Display for AllocatedMemory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} bytes", self.0)
+        let div = self.0.div_euclid(1000);
+        if div == 0 {
+            write!(f, "{div} bytes")
+        } else {
+            write!(f, "{div} Mb",)
+        }
     }
 }
 
@@ -358,6 +374,7 @@ impl std::ops::Add for AllocatedMemory {
 //     }
 // }
 
+/// display [`crate::actions::action_vec::print_action`]
 pub struct DiffResult<A, M, MD> {
     pub mapper: M,
     pub actions: Option<ActionsVec<A>>,
@@ -404,13 +421,12 @@ impl<A, MD: Clone, HAST, DS, DD> DiffResult<A, Mapper<HAST, DS, DD, VecStore<u32
     }
 }
 
-impl<'a, MD> ResultsSummary<MD> {
+impl<MD> ResultsSummary<MD> {
     pub fn compare_results(&self, other: &Self) -> bool {
         self.mappings == other.mappings && self.actions == other.actions
     }
 }
 
-// WIP
 impl<HAST, Dsrc, Ddst, M, MD> std::fmt::Display
     for DiffResult<
         crate::actions::script_generator2::SimpleAction<
@@ -423,23 +439,26 @@ impl<HAST, Dsrc, Ddst, M, MD> std::fmt::Display
     >
 where
     Dsrc: ShallowDecompressedTreeStore<HAST, u32>,
+    Ddst: ShallowDecompressedTreeStore<HAST, u32>,
     HAST: types::HyperAST + Copy,
-    // MD: ComputeTime,
-    // MD::T: std::fmt::Debug,
     for<'t> <HAST as types::AstLending<'t>>::RT: types::WithSerialization,
     for<'t> <HAST as types::AstLending<'t>>::RT: types::WithStats,
     HAST::IdN: Copy + types::NodeId<IdN = HAST::IdN> + std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // writeln!(f, "structural diff {:?}s", self.time())?;
-        let ori = self
+        let src = self
             .mapper
             .src_arena
             .original(&self.mapper.src_arena.root());
+        let dst = self
+            .mapper
+            .dst_arena
+            .original(&self.mapper.dst_arena.root());
         let Some(actions) = &self.actions else {
             return Ok(());
         };
-        crate::actions::action_vec::actions_vec_f(f, actions, self.mapper.hyperast, ori)
+        crate::actions::action_vec::actions_vec_f(f, actions, self.mapper.hyperast, src, dst)
     }
 }
 
@@ -454,6 +473,7 @@ type DS<HAST: types::HyperASTShared> = matchers::Decompressible<
 >;
 
 #[allow(type_alias_bounds)]
+#[allow(clippy::upper_case_acronyms)]
 type CDS<HAST: types::HyperASTShared> =
     matchers::Decompressible<HAST, decompressed_tree_store::CompletePostOrder<HAST::IdN, u32>>;
 
@@ -531,4 +551,4 @@ macro_rules! tr {
     };
 }
 use hyperast::types::{self, HyperASTShared};
-pub(self) use tr;
+use tr;

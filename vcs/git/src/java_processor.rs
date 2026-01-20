@@ -1,26 +1,28 @@
+use std::iter::Peekable;
+use std::marker::PhantomData;
+use std::path::Components;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::{iter::Peekable, path::Components};
 
 use git2::{Oid, Repository};
-use hyperast::hashed::{IndexingHashBuilder, MetaDataHashsBuilder};
-use hyperast::store::nodes::legion::RawHAST;
+
+use hyperast::hashed::{IndexingHashBuilder as _, MetaDataHashsBuilder as _};
+use hyperast::store::nodes::legion::{RawHAST, subtree_builder};
 use hyperast::tree_gen::add_md_precomp_queries;
 use hyperast_gen_ts_java::legion_with_refs::{self, Acc};
 use hyperast_gen_ts_java::types::{TStore, Type};
 
+use crate::Processor;
 use crate::StackEle;
+use crate::git::BasicGitObject;
+use crate::java::JavaAcc;
+use crate::preprocessed::RepositoryProcessor;
+use crate::processing::ParametrizedCommitProcessorHandle;
 use crate::processing::erased::ParametrizedCommitProc2;
-use crate::{
-    Processor,
-    git::BasicGitObject,
-    java::JavaAcc,
-    preprocessed::RepositoryProcessor,
-    processing::{CacheHolding, InFiles, ObjectName},
-};
+use crate::processing::{CacheHolding, InFiles, ObjectName};
 
 pub(crate) fn prepare_dir_exploration(tree: git2::Tree) -> Vec<BasicGitObject> {
-    tree.iter()
-        .rev()
+    (tree.iter().rev())
         .map(TryInto::try_into)
         .filter_map(|x| x.ok())
         .collect()
@@ -74,9 +76,7 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
                 if let Some(
                     // (already, skiped_ana)
                     already,
-                ) = self
-                    .prepro
-                    .processing_systems
+                ) = (self.prepro.processing_systems)
                     .mut_or_default::<JavaProcessorHolder>()
                     .with_parameters(self.handle.0) //.with_parameters(self.parameters.0)
                     .cache
@@ -143,14 +143,13 @@ impl<'repo, 'b, 'd, 'c> Processor<JavaAcc> for JavaProcessor<'repo, 'b, 'd, 'c, 
         let name = &acc.primary.name;
         let key = (oid, name.as_bytes().into());
         let name = self.prepro.get_or_insert_label(name);
-        let full_node = make(acc, self.prepro.main_stores_mut().mut_with_ts());
-        self.prepro
+        let holder = self
+            .prepro
             .processing_systems
-            .mut_or_default::<JavaProcessorHolder>()
-            .with_parameters_mut(self.handle.0) //.with_parameters(self.parameters.0)
-            .cache
-            .object_map
-            .insert(key, (full_node.clone(),));
+            .mut_or_default::<JavaProcessorHolder>();
+        let java_proc = holder.with_parameters_mut(self.handle.0);
+        let full_node = make(acc, self.prepro.main_stores.mut_with_ts(), java_proc);
+        java_proc.cache.object_map.insert(key, (full_node.clone(),));
         if self.stack.is_empty() {
             Some((full_node,))
         } else {
@@ -199,7 +198,11 @@ fn prep_scripting(
         .as_ref()
 }
 
-fn make(acc: JavaAcc, stores: &mut SimpleStores) -> hyperast_gen_ts_java::legion_with_refs::Local {
+fn make(
+    acc: JavaAcc,
+    stores: &mut SimpleStores,
+    java_proc: &mut JavaProc,
+) -> hyperast_gen_ts_java::legion_with_refs::Local {
     use hyperast::{
         cyclomatic::Mcc,
         store::nodes::legion::{NodeStore, eq_node},
@@ -220,7 +223,21 @@ fn make(acc: JavaAcc, stores: &mut SimpleStores) -> hyperast_gen_ts_java::legion
 
     let eq = eq_node(&interned_kind, Some(&label_id), &primary.children);
 
-    let insertion = node_store.prepare_insertion(&hashable, eq);
+    let md_cache = &mut java_proc.cache.md_cache;
+    let mut alt_dedup = java_proc.query.is_some() || java_proc.parameter.prepro.is_some();
+    #[cfg(feature = "tsg")]
+    {
+        alt_dedup |= java_proc.tsg.is_some();
+    }
+    let dedup_cache = if alt_dedup {
+        &mut java_proc.cache.dedup.0
+    } else {
+        &mut node_store.dedup
+    };
+    // java_proc.query
+    let insertion = node_store
+        .inner
+        .prepare_insertion(dedup_cache, &hashable, eq);
 
     let compute_ana = || {
         #[cfg(feature = "impact")]
@@ -269,29 +286,21 @@ fn make(acc: JavaAcc, stores: &mut SimpleStores) -> hyperast_gen_ts_java::legion
     };
 
     // Guard to avoid computing metadata for an already present subtree
-    if let Some(id) = insertion.occupied_id() {
+    if let Some(compressed_node) = insertion.occupied_id() {
         // TODO add (debug) assertions to detect non-local metadata
-        // TODO use the cache ?
-        // this branch should be really cold
-        let ana = compute_ana();
-        let metrics = primary
-            .metrics
-            .map_hashs(|h| MetaDataHashsBuilder::build(h));
+        // this branch should be pretty cold
+        let md = md_cache.get(&compressed_node).unwrap();
         return legion_with_refs::Local {
-            compressed_node: id,
-            metrics,
-            ana,
-            mcc: Mcc::new(&Type::Directory),
-            role: None,
-            precomp_queries: Default::default(),
             stmt_count: 0,
             member_import_count: 0,
+            // is_named: kind.is_named(),
+            ..md.local(compressed_node)
         };
     }
 
     let ana = compute_ana();
 
-    let mut dyn_builder = hyperast::store::nodes::legion::dyn_builder::EntityBuilder::new();
+    let mut dyn_builder = subtree_builder::<hyperast_gen_ts_java::types::TStore>(interned_kind);
 
     add_md_precomp_queries(&mut dyn_builder, acc.precomp_queries);
     let children_is_empty = primary.children.is_empty();
@@ -320,24 +329,35 @@ fn make(acc: JavaAcc, stores: &mut SimpleStores) -> hyperast_gen_ts_java::legion
     };
 
     let vacant = insertion.vacant();
-    let node_id = NodeStore::insert_built_after_prepare(vacant, dyn_builder.build());
+    let compressed_node = NodeStore::insert_built_after_prepare(vacant, dyn_builder.build());
 
+    md_cache.insert(
+        compressed_node,
+        legion_with_refs::MD {
+            metrics,
+            ana: None,
+            mcc: Mcc::new(&kind),
+            precomp_queries: acc.precomp_queries,
+        },
+    );
     let full_node = legion_with_refs::Local {
-        compressed_node: node_id.clone(),
+        compressed_node,
         metrics,
         ana,
         mcc: Mcc::new(&kind),
         role: None,
         precomp_queries: acc.precomp_queries,
         stmt_count: 0,
-        member_import_count: 0, // TODO precise the exact semantics
+        // TODO precise the exact semantics
+        member_import_count: 0,
+        // is_named: kind.is_named(),
     };
     full_node
 }
 
 use hyperast_gen_ts_java::legion_with_refs as java_tree_gen;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Parameter {
     pub query: Option<hyperast_tsquery::ZeroSepArrayStr>,
     pub tsg: Option<std::sync::Arc<str>>,
@@ -392,15 +412,21 @@ pub struct JavaProc {
     pub height_counts: Vec<u32>,
     query: Option<Query>,
     #[cfg(feature = "tsg")]
-    tsg: Option<(ErazedTSG, ErazedFcts)>,
+    tsg: Option<TsgErzedSettings>,
     cache: crate::processing::caches::Java,
     commits: crate::processing::caches::OidMap<crate::Commit>,
 }
 
 #[cfg(feature = "tsg")]
-type ErazedFcts = Arc<dyn std::any::Any + Send + Sync>;
+struct TsgErzedSettings {
+    file: ErazedTSG,
+    fcts: hyperast_tsquery::ErazedFcts,
+}
+
 #[cfg(feature = "tsg")]
 type ErazedTSG = Box<dyn std::any::Any + Send + Sync>;
+
+type M<'a, TS, Acc> = hyperast_tsquery::QueryMatcher<RawHAST<'a, 'a, TS>, Acc>;
 
 impl crate::processing::erased::Parametrized for JavaProcessorHolder {
     type T = Parameter;
@@ -427,15 +453,13 @@ impl crate::processing::erased::Parametrized for JavaProcessorHolder {
         let tsg = if let Some(q) = &t.tsg {
             use std::ops::Deref;
             let tsg = q.deref();
-            type M<'hast, TS, Acc> = hyperast_tsquery::QueryMatcher<TS, Acc>;
-            type ExtQ<'hast, TS, Acc> =
-                hyperast_tsquery::ExtendingStringQuery<M<'hast, TS, Acc>, tree_sitter::Language>;
+            type ExtQ<'a, HAST, Acc> =
+                hyperast_tsquery::ExtendingStringQuery<M<'a, HAST, Acc>, tree_sitter::Language>;
 
             let source: &str = tsg;
             let language = hyperast_gen_ts_java::language();
 
-            let mut file =
-                tree_sitter_graph::ast::File::<M<&SimpleStores, &Acc>>::new(language.clone());
+            let mut file = tree_sitter_graph::ast::File::<M<TStore, &Acc>>::new(language.clone());
 
             let query_source = if let Some(p) = &t.query {
                 ExtQ::new(language.clone(), Box::new(p.clone()), source.len())
@@ -450,23 +474,14 @@ impl crate::processing::erased::Parametrized for JavaProcessorHolder {
 
             M::check(&mut file).unwrap();
 
-            let functions = tree_sitter_graph::functions::Functions::<
-                tree_sitter_graph::graph::Graph<
-                    hyperast_tsquery::stepped_query_imm::Node<
-                        hyperast::store::SimpleStores<
-                            TStore,
-                            &hyperast::store::nodes::legion::NodeStoreInner,
-                            &hyperast::store::labels::LabelStore,
-                        >,
-                        &Acc,
-                    >,
-                >,
-            >::essentials();
-            // TODO port those path functions to the generified variant in my fork
-            // hyperast_tsquery::add_path_functions(&mut functions);
-            let functions = functions.as_any();
+            let fcts = hyperast_tsquery::ErazedFcts::new::<
+                hyperast_tsquery::ImmGraph<RawHAST<TStore>, &Acc>,
+            >(tree_sitter_graph::functions::Functions::stdlib());
 
-            Some((file.as_any(), functions))
+            Some(TsgErzedSettings {
+                file: file.as_any(),
+                fcts,
+            })
         } else {
             None
         };
@@ -511,7 +526,7 @@ impl Query {
             precomputeds.as_slice(),
         )
         .unwrap();
-        Self(precomp.into(), precomputeds.join("\n").into())
+        Self(precomp, precomputeds.join("\n").into())
     }
 }
 
@@ -536,11 +551,55 @@ impl crate::processing::erased::CommitProc for JavaProc {
 
     fn prepare_processing<'repo>(
         &self,
-        _repository: &'repo git2::Repository,
-        _commit_builder: crate::preprocessed::CommitBuilder,
-        _handle: crate::processing::ParametrizedCommitProcessorHandle,
+        repository: &'repo Repository,
+        commit_builder: crate::preprocessed::CommitBuilder,
+        handle: crate::processing::ParametrizedCommitProcessorHandle,
     ) -> Box<dyn crate::processing::erased::PreparedCommitProc + 'repo> {
-        unimplemented!("required for processing java at the root of project")
+        Box::new(PreparedJavaCommitProc {
+            repository,
+            commit_builder,
+            handle,
+        })
+    }
+}
+
+struct PreparedJavaCommitProc<'repo> {
+    repository: &'repo Repository,
+    commit_builder: crate::preprocessed::CommitBuilder,
+    pub(crate) handle: ParametrizedCommitProcessorHandle,
+}
+
+impl<'repo> crate::processing::erased::PreparedCommitProc for PreparedJavaCommitProc<'repo> {
+    fn process(
+        self: Box<PreparedJavaCommitProc<'repo>>,
+        prepro: &mut RepositoryProcessor,
+    ) -> hyperast::store::defaults::NodeIdentifier {
+        let dir_path = PathBuf::from("");
+        let mut dir_path = dir_path.components().peekable();
+        let name = ObjectName::from(b"");
+        // TODO check parameter in self to know it is a recusive module search
+        let root_full_node = JavaProcessor::<JavaAcc>::new(
+            self.repository,
+            prepro,
+            &mut dir_path,
+            &name,
+            self.commit_builder.tree_oid(),
+            &crate::processing::erased::ParametrizedCommitProcessor2Handle(
+                self.handle.1,
+                PhantomData,
+            ),
+        )
+        .process();
+        let h = prepro
+            .processing_systems
+            .mut_or_default::<JavaProcessorHolder>();
+        let handle = self.handle;
+        let commit_oid = self.commit_builder.commit_oid();
+        let commit = self.commit_builder.finish(root_full_node.0.compressed_node);
+        h.with_parameters_mut(handle.1)
+            .commits
+            .insert(commit_oid, commit);
+        root_full_node.0.compressed_node
     }
 }
 
@@ -718,11 +777,16 @@ impl RepositoryProcessor {
                     }
                     #[cfg(feature = "tsg")]
                     {
-                        let spec: &tree_sitter_graph::ast::File<
-                            hyperast_tsquery::QueryMatcher<_, &Acc>,
-                        > = tsg.0.downcast_ref().unwrap();
+                        //
+                        let spec: &tree_sitter_graph::ast::File<M<TStore, &Acc>> =
+                            tsg.file.downcast_ref().unwrap();
+                        // let spec: &tree_sitter_graph::ast::File<
+                        //     hyperast_tsquery::QueryMatcher<_, &Acc>,
+                        //     u32,
+                        //     tree_sitter::Language,
+                        // > = tsg.file.downcast_ref().unwrap();
                         let query = java_proc.query.as_ref().map(|x| &x.0);
-                        let functions = tsg.1.clone();
+                        let functions = tsg.fcts.clone();
                         let more = hyperast_tsquery::PreparedOverlay {
                             query,
                             overlayer: spec,
@@ -919,7 +983,13 @@ mod experiments {
             let name = &acc.primary.name;
             // let key = (oid, name.as_bytes().into());
             let name = self.prepro.intern_label(name);
-            let full_node = make(acc, self.prepro.main_stores_mut().mut_with_ts());
+
+            let holder = self
+                .prepro
+                .processing_systems
+                .mut_or_default::<JavaProcessorHolder>();
+            let java_proc = holder.with_parameters_mut(self.handle.0);
+            let full_node = make(acc, self.prepro.main_stores.mut_with_ts(), java_proc);
             let full_node = (full_node,);
             todo!(
               // self.prepro

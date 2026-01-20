@@ -268,7 +268,9 @@ pub(crate) fn make(acc: MakeModuleAcc, stores: &mut SimpleStores) -> (NodeIdenti
 
     log::info!("make mm {} {}", &primary.name, primary.children.len());
 
-    let mut dyn_builder = hyperast::store::nodes::legion::dyn_builder::EntityBuilder::new();
+    let mut dyn_builder = hyperast::store::nodes::legion::dyn_builder::EntityBuilder::with_lang(
+        hyperast_gen_ts_xml::types::Lang,
+    );
 
     let children_is_empty = primary.children.is_empty();
 
@@ -283,7 +285,7 @@ pub(crate) fn make(acc: MakeModuleAcc, stores: &mut SimpleStores) -> (NodeIdenti
         dyn_builder.build(),
     );
 
-    let full_node = (node_id.clone(), MD { metrics });
+    let full_node = (node_id, MD { metrics });
     full_node
 }
 

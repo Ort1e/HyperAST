@@ -1,29 +1,21 @@
-///! fully compress all subtrees from a tree-sitter query CST
+//! fully compress all subtrees from a tree-sitter query CST
 use std::{collections::HashMap, fmt::Debug};
 
-use hyperast::store::nodes::legion::eq_node;
-use hyperast::types::{HyperType, WithSerialization};
-
+use hyperast::hashed::{self, IndexingHashBuilder, MetaDataHashsBuilder, SyntaxNodeHashs};
+use hyperast::store::SimpleStores;
 use hyperast::store::nodes::compo;
-use hyperast::{
-    full::FullNode,
-    hashed::{self, IndexingHashBuilder, MetaDataHashsBuilder, SyntaxNodeHashs},
-    store::{
-        SimpleStores,
-        nodes::{
-            DefaultNodeStore as NodeStore, EntityBuilder,
-            legion::{HashedNodeRef, NodeIdentifier},
-        },
-    },
-    tree_gen::{
-        AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, Parents, PreResult,
-        SpacedGlobalData, Spaces, SubTreeMetrics, TextedGlobalData, TreeGen, WithByteRange,
-        ZippedTreeGen,
-        parser::{Node as _, TreeCursor},
-        utils_ts::TTreeCursor,
-    },
-    types::LabelStore as _,
+use hyperast::store::nodes::legion::{HashedNodeRef, NodeIdentifier};
+use hyperast::store::nodes::legion::{eq_node, subtree_builder};
+use hyperast::store::nodes::{DefaultNodeStore as NodeStore, EntityBuilder};
+use hyperast::tree_gen::parser::{Node as _, TreeCursor};
+use hyperast::tree_gen::{
+    AccIndentation, Accumulator, BasicAccumulator, BasicGlobalData, Parents, PreResult,
+    SpacedGlobalData, Spaces, SubTreeMetrics, TextedGlobalData, TreeGen, WithByteRange,
+    ZippedTreeGen, utils_ts::TTreeCursor,
 };
+use hyperast::types::{HyperType, WithSerialization};
+use hyperast::{full::FullNode, types::LabelStore as _};
+
 use num::ToPrimitive;
 
 use crate::types::{TsQueryEnabledTypeStore, Type};
@@ -276,9 +268,7 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
         // let hsyntax = hbuilder.most_discriminating();
         // let hashable = &hsyntax;
 
-        let metrics = acc
-            .metrics
-            .finalize(&interned_kind, &label, size_no_spaces as u16);
+        let metrics = acc.metrics.finalize(&interned_kind, &label, size_no_spaces);
 
         let hashable = &metrics.hashs.most_discriminating();
 
@@ -341,9 +331,7 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
         // let hsyntax = hbuilder.most_discriminating();
         // let hashable = &hsyntax;
 
-        let metrics = acc
-            .metrics
-            .finalize(&interned_kind, &label, line_count as u16);
+        let metrics = acc.metrics.finalize(&interned_kind, &label, line_count);
 
         let hashable = &metrics.hashs.most_discriminating();
 
@@ -388,9 +376,7 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
         // let hsyntax = hbuilder.most_discriminating();
         // let hashable = &hsyntax;
 
-        let metrics = acc
-            .metrics
-            .finalize(&interned_kind, &label, size_no_spaces as u16);
+        let metrics = acc.metrics.finalize(&interned_kind, &label, size_no_spaces);
         let hashable = &metrics.hashs.most_discriminating();
 
         let label_id = l;
@@ -409,13 +395,11 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
     ) -> Local {
         let metrics = metrics.map_hashs(|h| h.build());
 
-        let mut dyn_builder = hyperast::store::nodes::legion::dyn_builder::EntityBuilder::new();
+        let mut dyn_builder = subtree_builder::<TS>(interned_kind);
         dyn_builder.add(byte_len);
 
         let children_is_empty = acc.simple.children.is_empty();
-        let hashs = metrics
-            .clone()
-            .add_md_metrics(&mut dyn_builder, children_is_empty);
+        let hashs = metrics.add_md_metrics(&mut dyn_builder, children_is_empty);
         hashs.persist(&mut dyn_builder);
         acc.simple
             .add_primary(&mut dyn_builder, interned_kind, label_id);
@@ -454,8 +438,7 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
         for c in cs {
             let local = {
                 let metrics = if let Some(md) = md(c) {
-                    let metrics = md.metrics;
-                    metrics
+                    md.metrics
                 } else {
                     use hyperast::hashed::SyntaxNodeHashsKinds;
                     use hyperast::types::WithHashs;
@@ -470,14 +453,14 @@ impl<'stores, TS: TsQueryEnabledTypeStore<HashedNodeRef<'stores, NodeIdentifier>
                     byte_len += node.try_bytes_len().unwrap();
                     use hyperast::types::WithStats;
                     use num::ToPrimitive;
-                    let metrics = SubTreeMetrics {
+
+                    SubTreeMetrics {
                         size: node.size().to_u32().unwrap(),
                         height: node.height().to_u32().unwrap(),
                         size_no_spaces: node.size_no_spaces().to_u32().unwrap(),
                         hashs,
-                        line_count: node.line_count().to_u16().unwrap(),
-                    };
-                    metrics
+                        line_count: node.line_count().to_u32().unwrap(),
+                    }
                 };
                 Local {
                     compressed_node: c,

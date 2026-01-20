@@ -12,8 +12,8 @@ use crate::{
         Decompressible, Mapper, Mapping,
         heuristic::gt::{
             greedy_bottom_up_matcher::GreedyBottomUpMatcher,
+            lazy_greedy_bottom_up_matcher::LazyGreedyBottomUpMatcher,
             lazy_marriage_bottom_up_matcher::LazyMarriageBottomUpMatcher,
-            lazy2_greedy_bottom_up_matcher::LazyGreedyBottomUpMatcher,
             marriage_bottom_up_matcher::MarriageBottomUpMatcher,
         },
         mapping_store::{DefaultMappingStore, MappingStore, VecStore},
@@ -32,10 +32,10 @@ enum GumtreeVariant {
 
 impl GumtreeVariant {
     fn is_lazy(&self) -> bool {
-        return match self {
+        match self {
             Self::Greedy | Self::Stable => false,
             Self::GreedyLazy | Self::StableLazy => true,
-        };
+        }
     }
 }
 
@@ -84,29 +84,7 @@ fn is_stable(
     let result2 = test_with_mappings(&stores, dst, src, mappings.mirror(), variant).mirror();
 
     println!("result1: {:?}\nresult2: {:?}", result1, result2);
-    return result1 == result2;
-}
-
-fn _calculate_mappings(example: ((SimpleTree<u8>, SimpleTree<u8>), Vec<Vec<u8>>, Vec<Vec<u8>>)) {
-    let (vpair, map_src, map_dst) = example;
-    let (stores, src, dst) = vpair_to_stores(vpair);
-
-    let src_arena = Decompressible::<_, CompletePostOrder<u16, u16>>::decompress(&stores, &src);
-    let dst_arena = Decompressible::<_, CompletePostOrder<u16, u16>>::decompress(&stores, &dst);
-
-    let mut m: DefaultMappingStore<u16> = DefaultMappingStore::default();
-    m.topit(src_arena.len(), dst_arena.len());
-
-    let src = src_arena.root();
-    let dst = dst_arena.root();
-
-    for (map_src, map_dst) in map_src.iter().zip(map_dst) {
-        m.link(
-            src_arena.child(&src, &map_src),
-            dst_arena.child(&dst, &map_dst),
-        );
-    }
-    println!("{:?}", m);
+    result1 == result2
 }
 
 fn test_with_mappings(
@@ -123,7 +101,7 @@ fn test_with_mappings(
         let src_arena = Decompressible::<_, CompletePostOrder<u16, u16>>::decompress(stores, &src);
         let dst_arena = Decompressible::<_, CompletePostOrder<u16, u16>>::decompress(stores, &dst);
 
-        let mapping = Mapper {
+        let mut mapper = Mapper {
             hyperast: stores,
             mapping: Mapping {
                 src_arena,
@@ -131,35 +109,21 @@ fn test_with_mappings(
                 mappings,
             },
         };
-        let mapping = match variant {
-            GumtreeVariant::Greedy => {
-                GreedyBottomUpMatcher::<
-                    Decompressible<_, CompletePostOrder<_, u16>>,
-                    Decompressible<_, CompletePostOrder<_, u16>>,
-                    &SimpleStores<TStore, NS<Tree>, LS<u16>>,
-                    VecStore<u16>,
-                >::match_it(mapping)
-                .mapping
-            }
+        match variant {
             GumtreeVariant::Stable => {
-                MarriageBottomUpMatcher::<
-                    Decompressible<_, CompletePostOrder<_, u16>>,
-                    Decompressible<_, CompletePostOrder<_, u16>>,
-                    &SimpleStores<TStore, NS<Tree>, LS<u16>>,
-                    VecStore<u16>,
-                >::match_it(mapping)
-                .mapping
+                MarriageBottomUpMatcher::<_, VecStore<_>>::execute(&mut mapper)
             }
+            GumtreeVariant::Greedy => GreedyBottomUpMatcher::<_>::execute(&mut mapper),
             _ => panic!(),
         };
         println!(
             "{}",
-            mapping.mappings.display(
-                &|src: u16| mapping.src_arena.original(&src).to_string(),
-                &|dst: u16| mapping.dst_arena.original(&dst).to_string(),
+            mapper.mappings.display(
+                &|src: u16| mapper.src_arena.original(&src).to_string(),
+                &|dst: u16| mapper.dst_arena.original(&dst).to_string(),
             )
         );
-        return mapping.mappings;
+        mapper.mapping.mappings
     } else {
         let mut owned_src_arena =
             Decompressible::<_, LazyPostOrder<u16, u16>>::decompress(stores, &src);
@@ -204,10 +168,10 @@ fn test_with_mappings(
 
         let mapping = match variant {
             GumtreeVariant::GreedyLazy => {
-                LazyGreedyBottomUpMatcher::<_, _, _, _, VecStore<_>>::match_it(mapper).mapping
+                LazyGreedyBottomUpMatcher::<_, VecStore<_>>::match_it(mapper).mapping
             }
             GumtreeVariant::StableLazy => {
-                LazyMarriageBottomUpMatcher::<_, _, _, _, VecStore<_>>::match_it(mapper).mapping
+                LazyMarriageBottomUpMatcher::<_, VecStore<_>>::match_it(mapper).mapping
             }
             _ => panic!(),
         };
@@ -218,7 +182,7 @@ fn test_with_mappings(
         // &|dst: u16| mapping.dst_arena.original(&dst).to_string(),
         // )
         // );
-        return mapping.mappings;
+        mapping.mappings
     }
 }
 

@@ -13,11 +13,12 @@ use hyperast::types::{self, HyperAST, NodeId};
 // use crate::decompressed_tree_store::lazy_post_order::LazyPostOrder;
 use super::DS;
 
-use crate::matchers::heuristic::gt::lazy2_greedy_bottom_up_matcher::LazyGreedyBottomUpMatcher;
-use crate::matchers::heuristic::gt::lazy2_greedy_subtree_matcher::LazyGreedySubtreeMatcher;
+use crate::matchers::heuristic::gt::lazy_greedy_bottom_up_matcher::LazyGreedyBottomUpMatcher;
+use crate::matchers::heuristic::gt::lazy_greedy_subtree_matcher::LazyGreedySubtreeMatcher;
 
-type M = VecStore<u32>;
-type MM = DefaultMultiMappingStore<u32>;
+type IdD = u32;
+type M = VecStore<IdD>;
+type MM = DefaultMultiMappingStore<IdD>;
 
 pub fn diff<HAST: HyperAST + Copy>(
     hyperast: HAST,
@@ -33,17 +34,17 @@ where
 {
     let measure = super::DefaultMetricSetup::prepare();
     let mut mapper_owned: (DS<HAST>, DS<HAST>) = hyperast.decompress_pair(src, dst).1;
-    let mapper = Mapper::with_mut_decompressible(&mut mapper_owned);
+    let mapper = Mapper::with_mut_decompressible(&mut mapper_owned, M::default());
     let measure = measure.start();
 
-    let mapper = LazyGreedySubtreeMatcher::<_, _, _, M>::match_it::<MM>(mapper);
+    let mapper = LazyGreedySubtreeMatcher::<_>::match_it::<MM>(mapper);
     let subtree_mappings_s = mapper.mappings().len();
 
     tr!(subtree_mappings_s);
 
     let measure = measure.stop_then_skip_prepare();
 
-    let mapper = LazyGreedyBottomUpMatcher::<_, _, _, _>::match_it(mapper);
+    let mapper = LazyGreedyBottomUpMatcher::<_>::match_it(mapper);
     let bottomup_mappings_s = mapper.mappings().len();
 
     tr!(bottomup_mappings_s);
@@ -79,14 +80,17 @@ where
 use crate::decompressed_tree_store::lazy_post_order::LazyPostOrder;
 use crate::matchers::Decompressible;
 
+#[allow(type_alias_bounds)]
+type LazyMapper<'a, HAST: HyperAST> = Mapper<
+    HAST,
+    Decompressible<HAST, &'a mut LazyPostOrder<HAST::IdN, IdD>>,
+    Decompressible<HAST, &'a mut LazyPostOrder<HAST::IdN, IdD>>,
+    VecStore<IdD>,
+>;
+
 pub fn lazy_top_down<'a, HAST: HyperAST + Copy + 'a>(
     mapper_owned: &'a mut (DS<HAST>, DS<HAST>),
-) -> Mapper<
-    HAST,
-    Decompressible<HAST, &'a mut LazyPostOrder<HAST::IdN, u32>>,
-    Decompressible<HAST, &'a mut LazyPostOrder<HAST::IdN, u32>>,
-    VecStore<u32>,
->
+) -> LazyMapper<'a, HAST>
 where
     HAST::IdN: Clone + Debug + Eq,
     HAST::IdN: NodeId<IdN = HAST::IdN>,
@@ -94,6 +98,6 @@ where
     HAST::Idx: hyperast::PrimInt,
     for<'t> types::LendT<'t, HAST>: types::WithHashs + types::WithStats,
 {
-    let mapper = Mapper::with_mut_decompressible(mapper_owned);
-    LazyGreedySubtreeMatcher::<_, _, _, M>::match_it::<MM>(mapper)
+    let mapper = Mapper::with_mut_decompressible(mapper_owned, M::default());
+    LazyGreedySubtreeMatcher::<_>::match_it::<MM>(mapper)
 }

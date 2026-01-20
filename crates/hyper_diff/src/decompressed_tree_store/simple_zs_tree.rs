@@ -2,20 +2,21 @@ use std::{fmt::Debug, marker::PhantomData, ops::Deref};
 
 use num_traits::{cast, one, zero};
 
-use hyperast::types::{self, Children, Childrn, HyperAST, WithChildren, WithStats};
 use hyperast::PrimInt;
+use hyperast::types::{self, Children, Childrn, HyperAST, WithChildren, WithStats};
 
 use crate::matchers::Decompressible;
 
 use super::{
-    basic_post_order::BasicPostOrder, simple_post_order::SimplePostOrder, CompletePostOrder,
-    DecompressedTreeStore, InitializableWithStats, Iter, IterKr, PostOrdKeyRoots, PostOrder,
-    PostOrderIterable, PostOrderKeyRoots, ShallowDecompressedTreeStore,
+    CompletePostOrder, DecompressedTreeStore, InitializableWithStats, Iter, IterKr,
+    PostOrdKeyRoots, PostOrder, PostOrderIterable, PostOrderKeyRoots, ShallowDecompressedTreeStore,
+    basic_post_order::BasicPostOrder, simple_post_order::SimplePostOrder,
 };
 
 /// made for the zs diff algo
 /// - post order
 /// - key roots
+///
 /// Compared to simple and complete post order it does not have parents
 pub struct SimpleZsTree<IdN, IdD> {
     basic: BasicPostOrder<IdN, IdD>,
@@ -76,6 +77,10 @@ where
     fn tree(&self, id: &IdD) -> HAST::IdN {
         self.as_basic().tree(id)
     }
+
+    fn has_children(&self, id: &IdD) -> bool {
+        self.as_basic().has_children(id)
+    }
 }
 
 impl<HAST: HyperAST + Copy, IdD: PrimInt> PostOrderIterable<HAST, IdD>
@@ -107,7 +112,7 @@ where
     }
 }
 
-impl<'a, HAST: HyperAST + Copy, IdD: PrimInt + Debug> super::DecompressedSubtree<HAST::IdN>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Debug> super::DecompressedSubtree<HAST::IdN>
     for Decompressible<HAST, SimpleZsTree<HAST::IdN, IdD>>
 where
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -129,7 +134,7 @@ where
     }
 }
 
-impl<'a, HAST: HyperAST + Copy, IdD: PrimInt + Debug> types::DecompressedFrom<HAST>
+impl<HAST: HyperAST + Copy, IdD: PrimInt + Debug> types::DecompressedFrom<HAST>
     for SimpleZsTree<HAST::IdN, IdD>
 where
     HAST::IdN: types::NodeId<IdN = HAST::IdN>,
@@ -145,8 +150,8 @@ where
         };
         let kr = basic.compute_kr_bitset();
         let basic = basic.decomp;
-        let decomp = SimpleZsTree { basic, kr };
-        decomp
+
+        SimpleZsTree { basic, kr }
     }
 }
 
@@ -193,10 +198,10 @@ where
                 } else {
                     lld
                 };
-                if let Some(tmp) = stack.last_mut() {
-                    if tmp.idx == one() {
-                        tmp.lld = value;
-                    }
+                if let Some(tmp) = stack.last_mut()
+                    && tmp.idx == one()
+                {
+                    tmp.lld = value;
                 }
                 id_compressed.push(curr.clone());
                 llds.push(value);

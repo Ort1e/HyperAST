@@ -7,6 +7,13 @@ use egui_addon::{
 use re_ui::UiExt;
 use std::collections::hash_map;
 
+type ShowRes<T> = (
+    egui::Response,
+    egui::InnerResponse<()>,
+    std::option::Option<egui::InnerResponse<Option<T>>>,
+);
+
+#[allow(unused)] // TODO move to egui_addon
 pub trait MyUiExt: UiExt {
     fn radio_collapsing<R, S: PartialEq + Clone>(
         &mut self,
@@ -29,15 +36,7 @@ pub trait MyUiExt: UiExt {
         commit: &types::Commit,
         file_path: &mut String,
         file_result: hash_map::Entry<'_, types::FileIdentifier, code_tracking::RemoteFile>,
-    ) -> (
-        egui::Response,
-        egui::InnerResponse<()>,
-        std::option::Option<
-            egui::InnerResponse<
-                Option<egui::scroll_area::ScrollAreaOutput<egui::text_edit::TextEditOutput>>,
-            >,
-        >,
-    ) {
+    ) -> ShowRes<egui::scroll_area::ScrollAreaOutput<egui::text_edit::TextEditOutput>> {
         egui::ScrollArea::horizontal()
             .show(self.ui_mut(), |ui| {
                 ui.show_remote_code1(
@@ -60,15 +59,7 @@ pub trait MyUiExt: UiExt {
         file_result: hash_map::Entry<'_, types::FileIdentifier, code_tracking::RemoteFile>,
         desired_width: f32,
         wrap: bool,
-    ) -> (
-        egui::Response,
-        egui::InnerResponse<()>,
-        std::option::Option<
-            egui::InnerResponse<
-                Option<egui::scroll_area::ScrollAreaOutput<egui::text_edit::TextEditOutput>>,
-            >,
-        >,
-    ) {
+    ) -> ShowRes<egui::scroll_area::ScrollAreaOutput<egui::text_edit::TextEditOutput>> {
         let mut upd_src = false;
         egui::collapsing_header::CollapsingState::load_with_default_open(
             self.ui().ctx(),
@@ -85,7 +76,7 @@ pub trait MyUiExt: UiExt {
         })
         .body_unindented(|ui| {
             ui.add_space(4.0);
-            let r = super::utils_poll::try_fetch_remote_file(&file_result, |file| {
+            let r = code_tracking::try_fetch_remote_file(&file_result, |file| {
                 let code: &str = &file.content;
                 let language = "java";
                 // show_code_scrolled(ui, language, wrap, code, desired_width)
@@ -125,7 +116,7 @@ pub trait MyUiExt: UiExt {
         use syntax_highlighting::syntax_highlighting_async as syntax_highlighter;
         let theme = syntax_highlighting::syntect::CodeTheme::from_memory(self.ui().ctx());
 
-        let mut layouter = |ui: &egui::Ui, code: &str, wrap_width: f32| {
+        let mut layouter = |ui: &egui::Ui, code: &dyn egui::TextBuffer, wrap_width: f32| {
             let mut layout_job = syntax_highlighter::highlight(ui.ctx(), &theme, code, language);
             if wrap {
                 layout_job.wrap.max_width = wrap_width;
@@ -153,20 +144,8 @@ pub trait MyUiExt: UiExt {
         file_result: hash_map::Entry<'_, types::FileIdentifier, code_tracking::RemoteFile>,
         desired_width: f32,
         wrap: bool,
-    ) -> (
-        egui::Response,
-        egui::InnerResponse<()>,
-        std::option::Option<
-            egui::InnerResponse<
-                Option<
-                    egui::scroll_area::ScrollAreaOutput<(
-                        SkipedBytes,
-                        egui::text_edit::TextEditOutput,
-                    )>,
-                >,
-            >,
-        >,
-    ) {
+    ) -> ShowRes<egui::scroll_area::ScrollAreaOutput<(SkipedBytes, egui::text_edit::TextEditOutput)>>
+    {
         let mut upd_src = false;
         egui::collapsing_header::CollapsingState::load_with_default_open(
             self.ui().ctx(),
@@ -251,12 +230,13 @@ pub trait MyUiExt: UiExt {
             self.ui().ctx(),
             self.ui().style(),
         );
-        let mut layouter = |ui: &egui::Ui, code: &str, _wrap_width: f32| {
+        let mut layouter = |ui: &egui::Ui, code: &dyn egui::TextBuffer, _wrap_width: f32| {
+            let code: &str = code.as_str();
             let layout_job = egui_extras::syntax_highlighting::highlight(
                 ui.ctx(),
                 ui.style(),
                 &theme,
-                code,
+                &code,
                 language,
             );
             if wrap {
@@ -326,25 +306,79 @@ pub trait MyUiExt: UiExt {
             .horizontal(|ui| {
                 let mut lower_value = *low as f32;
                 let mut upper_value = *high as f32;
-                let range = std::ops::RangeInclusive::new(
-                    *range.start() as f32,
-                    *range.end() as f32,
-                );
+                let range =
+                    std::ops::RangeInclusive::new(*range.start() as f32, *range.end() as f32);
                 let slider = egui_double_slider::DoubleSlider::new(
                     &mut lower_value,
                     &mut upper_value,
-                    range,
-                ).separation_distance(1f32);
-                let resp = egui::Widget::ui(slider, ui);
+                    range.clone(),
+                )
+                .separation_distance(1f32);
+                let mut resp = ui.add(slider);
                 *low = lower_value as usize;
                 *high = upper_value as usize;
-                ui.label(format!("{}..{}", low,high));
+                ui.spacing_mut().button_padding = Default::default();
+                ui.spacing_mut().interact_size = Default::default();
+                resp |= ui.add(egui::DragValue::new(low).range(range.clone()));
+                ui.label("..");
+                resp |= ui.add(egui::DragValue::new(high).range(range.clone()));
                 resp
             })
             .inner
+    }
+
+    fn aux<R>(&mut self, txt: &str, f: impl FnOnce(&mut egui::Ui) -> R) -> R {
+        let (frame, area) = framed_scroll_area_aux();
+        area.id_salt(txt)
+            .show(self.ui_mut(), |ui| frame.show(ui, f).inner)
+            .inner
+    }
+
+    fn responsive_width_slider(&mut self, mut slider: egui::Slider, text: &str) -> egui::Response {
+        let ui = self.ui_mut();
+        if ui.spacing().slider_width + 100. < ui.available_width() {
+            slider = slider.text(text);
+        } else {
+            slider = slider.text(egui::WidgetText::default());
+            ui.label(format!("{}:", text));
+        }
+        ui.add(slider)
+    }
+    fn grouped_wrapped_list<T, It: IntoIterator<Item = Option<T>>>(
+        &mut self,
+        mut it: It,
+        mut add_content: impl FnMut(&mut egui::Ui, usize, T),
+    ) {
+        let ui = self.ui_mut();
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let mut rest = false;
+                for (i, x) in it.into_iter().enumerate() {
+                    let Some(x) = x else { continue };
+                    if rest {
+                        ui.separator();
+                    }
+                    rest = true;
+                    add_content(ui, i, x);
+                }
+            })
+        });
     }
 }
 
 impl MyUiExt for egui::Ui {}
 
 type SkipedBytes = usize;
+
+pub fn framed_scroll_area_aux() -> (egui::Frame, egui::ScrollArea) {
+    let inner_margin =
+        egui::Margin::same(re_ui::design_tokens_of(egui::Theme::Dark).view_padding());
+    let frame = egui::Frame {
+        inner_margin,
+        ..Default::default()
+    };
+    let area = egui::ScrollArea::both()
+        .auto_shrink([false; 2])
+        .stick_to_bottom(true);
+    (frame, area)
+}

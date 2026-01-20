@@ -19,6 +19,7 @@ pub struct NodeStore<I = NodeStoreInner, D = hashbrown::HashMap<NodeIdentifier, 
     pub inner: I,
 }
 
+#[derive(Default)]
 pub struct NodeStoreInner {
     count: usize,
     errors: usize,
@@ -41,7 +42,7 @@ struct MyNoHashH(u32);
 impl std::hash::Hasher for MyNoHashH {
     #[inline]
     fn finish(&self) -> u64 {
-        (self.0 as u64) << 32 | (self.0 as u64)
+        ((self.0 as u64) << 32) | (self.0 as u64)
     }
 
     #[inline]
@@ -64,11 +65,11 @@ pub struct PendingInsert<'a>(
 impl<'a> PendingInsert<'a> {
     pub fn occupied_id(&self) -> Option<NodeIdentifier> {
         match &self.0 {
-            hashbrown::hash_map::RawEntryMut::Occupied(occupied) => Some(occupied.key().clone()),
+            hashbrown::hash_map::RawEntryMut::Occupied(occupied) => Some(*occupied.key()),
             _ => None,
         }
     }
-    pub fn resolve<T>(&self, id: NodeIdentifier) -> HashedNodeRef<T> {
+    pub fn resolve<T>(&self, id: NodeIdentifier) -> HashedNodeRef<'_, T> {
         self.1
             .1
             .internal
@@ -79,7 +80,7 @@ impl<'a> PendingInsert<'a> {
     pub fn occupied(&'a self) -> Option<(NodeIdentifier, (u64, &'a NodeStoreInner))> {
         match &self.0 {
             hashbrown::hash_map::RawEntryMut::Occupied(occupied) => {
-                Some((occupied.key().clone(), (self.1.0, self.1.1)))
+                Some((*occupied.key(), (self.1.0, self.1.1)))
             }
             _ => None,
         }
@@ -121,8 +122,8 @@ impl NodeStoreInner {
 }
 
 impl NodeStore {
-    pub fn get<'a, Eq: Fn(EntryRef) -> bool, V: Hash>(
-        &'a self,
+    pub fn get<Eq: Fn(EntryRef) -> bool, V: Hash>(
+        &self,
         hashable: &V,
         eq: Eq,
     ) -> Option<legion::Entity> {
@@ -165,7 +166,7 @@ impl NodeStore {
                 let node: HashedNodeRef<'_, NodeIdentifier> = inner
                     .internal
                     .entry_ref(*id)
-                    .map(|x| HashedNodeRef::new(x))
+                    .map(HashedNodeRef::new)
                     .unwrap();
 
                 make_hash(&inner.hasher, &node)
@@ -189,7 +190,7 @@ impl NodeStore {
                 let node: HashedNodeRef<'_, NodeIdentifier> = inner
                     .internal
                     .entry_ref(*id)
-                    .map(|x| HashedNodeRef::new(x))
+                    .map(HashedNodeRef::new)
                     .unwrap();
 
                 make_hash(&inner.hasher, &node)
@@ -198,15 +199,15 @@ impl NodeStore {
         symbol
     }
 
-    pub fn resolve(&self, id: NodeIdentifier) -> HashedNodeRef<NodeIdentifier> {
+    pub fn resolve(&self, id: NodeIdentifier) -> HashedNodeRef<'_, NodeIdentifier> {
         self.inner
             .internal
             .entry_ref(id)
-            .map(|x| HashedNodeRef::new(x))
+            .map(HashedNodeRef::new)
             .unwrap()
     }
 
-    pub unsafe fn _resolve<T>(&self, id: &NodeIdentifier) -> HashedNodeRef<T> {
+    pub unsafe fn _resolve<T>(&self, id: &NodeIdentifier) -> HashedNodeRef<'_, T> {
         self.inner
             .internal
             .entry_ref(*id)
@@ -217,7 +218,7 @@ impl NodeStore {
     pub fn resolve_with_type<T: 'static + TypedNodeId<IdN = NodeIdentifier>>(
         &self,
         id: &T::IdN,
-    ) -> (T::Ty, HashedNodeRef<T>) {
+    ) -> (T::Ty, HashedNodeRef<'_, T>) {
         let n = self
             .inner
             .internal
@@ -227,29 +228,29 @@ impl NodeStore {
         (n.get_type(), n)
     }
 
-    pub fn try_resolve(&self, id: NodeIdentifier) -> Option<HashedNodeRef<NodeIdentifier>> {
+    pub fn try_resolve(&self, id: NodeIdentifier) -> Option<HashedNodeRef<'_, NodeIdentifier>> {
         self.inner
             .internal
             .entry_ref(id)
-            .map(|x| HashedNodeRef::new(x))
+            .map(HashedNodeRef::new)
             .ok()
     }
 
     pub fn resolve_typed<TIdN: 'static + TypedNodeId<IdN = NodeIdentifier>>(
         &self,
         id: &TIdN,
-    ) -> HashedNodeRef<TIdN> {
-        let x = self.inner.internal.entry_ref(id.as_id().clone()).unwrap();
+    ) -> HashedNodeRef<'_, TIdN> {
+        let x = self.inner.internal.entry_ref(*id.as_id()).unwrap();
         HashedNodeRef::new(x)
     }
 
     pub fn try_resolve_typed<TIdN: 'static + TypedNodeId<IdN = NodeIdentifier>>(
         &self,
         id: &TIdN::IdN,
-    ) -> Option<(HashedNodeRef<TIdN>, TIdN)> {
-        let x = self.inner.internal.entry_ref(id.clone()).unwrap();
+    ) -> Option<(HashedNodeRef<'_, TIdN>, TIdN)> {
+        let x = self.inner.internal.entry_ref(*id).unwrap();
         x.get_component::<TIdN::Ty>().ok()?;
-        Some((HashedNodeRef::new(x), unsafe { TIdN::from_id(id.clone()) }))
+        Some((HashedNodeRef::new(x), unsafe { TIdN::from_id(*id) }))
     }
 
     pub fn try_resolve_typed2<
@@ -257,8 +258,8 @@ impl NodeStore {
     >(
         &self,
         id: &NodeIdentifier,
-    ) -> Option<(HashedNodeRef<NodeIdentifier>, L::E)> {
-        let x = self.inner.internal.entry_ref(id.clone()).unwrap();
+    ) -> Option<(HashedNodeRef<'_, NodeIdentifier>, L::E)> {
+        let x = self.inner.internal.entry_ref(*id).unwrap();
         let ty = x.get_component::<crate::types::TypeU16<L>>().ok()?;
         let ty = ty.e();
         Some((HashedNodeRef::new(x), ty))
@@ -269,8 +270,8 @@ impl NodeStore {
     >(
         &self,
         id: &NodeIdentifier,
-    ) -> Option<TypedNode<HashedNodeRef<NodeIdentifier>, L::E>> {
-        let x = self.inner.internal.entry_ref(id.clone()).unwrap();
+    ) -> Option<TypedNode<HashedNodeRef<'_, NodeIdentifier>, L::E>> {
+        let x = self.inner.internal.entry_ref(*id).unwrap();
         let ty = x.get_component::<crate::types::TypeU16<L>>().ok()?;
         let ty = ty.e();
         Some(TypedNode(HashedNodeRef::new(x), ty))
@@ -318,10 +319,10 @@ impl NodeStoreInner {
     pub fn try_resolve_typed<TIdN: 'static + TypedNodeId<IdN = NodeIdentifier>>(
         &self,
         id: &TIdN::IdN,
-    ) -> Option<(HashedNodeRef<TIdN>, TIdN)> {
-        let x = self.internal.entry_ref(id.clone()).unwrap();
+    ) -> Option<(HashedNodeRef<'_, TIdN>, TIdN)> {
+        let x = self.internal.entry_ref(*id).unwrap();
         x.get_component::<TIdN::Ty>().ok()?;
-        Some((HashedNodeRef::new(x), unsafe { TIdN::from_id(id.clone()) }))
+        Some((HashedNodeRef::new(x), unsafe { TIdN::from_id(*id) }))
     }
 }
 
@@ -335,6 +336,16 @@ impl crate::types::lending::NodeStore<NodeIdentifier> for NodeStore {
         id: &NodeIdentifier,
     ) -> <Self as crate::types::lending::NLending<'_, NodeIdentifier>>::N {
         crate::types::lending::NodeStore::resolve(&self.inner, id)
+    }
+
+    fn try_resolve(
+        &self,
+        id: &NodeIdentifier,
+    ) -> Option<crate::types::LendN<'_, Self, NodeIdentifier>> {
+        (self.inner.internal)
+            .entry_ref(*id)
+            .map(HashedNodeRef::new)
+            .ok()
     }
 }
 
@@ -352,9 +363,15 @@ impl crate::types::lending::NodeStore<NodeIdentifier> for NodeStoreInner {
         id: &NodeIdentifier,
     ) -> <Self as crate::types::lending::NLending<'_, NodeIdentifier>>::N {
         self.internal
-            .entry_ref(id.clone())
-            .map(|x| HashedNodeRef::new(x))
+            .entry_ref(*id)
+            .map(HashedNodeRef::new)
             .unwrap()
+    }
+    fn try_resolve(
+        &self,
+        id: &NodeIdentifier,
+    ) -> Option<crate::types::LendN<'_, Self, NodeIdentifier>> {
+        self.internal.entry_ref(*id).map(HashedNodeRef::new).ok()
     }
 }
 
@@ -368,9 +385,15 @@ impl crate::types::lending::NodeStore<NodeIdentifier> for &NodeStoreInner {
         id: &NodeIdentifier,
     ) -> <Self as crate::types::lending::NLending<'_, NodeIdentifier>>::N {
         self.internal
-            .entry_ref(id.clone())
-            .map(|x| HashedNodeRef::new(x))
+            .entry_ref(*id)
+            .map(HashedNodeRef::new)
             .unwrap()
+    }
+    fn try_resolve(
+        &self,
+        id: &NodeIdentifier,
+    ) -> Option<crate::types::LendN<'_, Self, NodeIdentifier>> {
+        self.internal.entry_ref(*id).map(HashedNodeRef::new).ok()
     }
 }
 
@@ -381,12 +404,12 @@ pub fn _resolve<'a, T>(
     slf.entry_ref(*id).map(|x| HashedNodeRef::new(x))
 }
 
-impl<'a> crate::types::NStore for NodeStoreInner {
+impl crate::types::NStore for NodeStoreInner {
     type IdN = NodeIdentifier;
     type Idx = u16;
 }
 
-impl<'a> crate::types::NStore for &'a NodeStoreInner {
+impl crate::types::NStore for &NodeStoreInner {
     type IdN = NodeIdentifier;
     type Idx = u16;
 }
@@ -395,8 +418,8 @@ impl<'a> crate::types::NodeStoreLean<NodeIdentifier> for &'a NodeStoreInner {
     type R = HashedNodeRef<'a, NodeIdentifier>;
     fn resolve(&self, id: &NodeIdentifier) -> Self::R {
         self.internal
-            .entry_ref(id.clone())
-            .map(|x| HashedNodeRef::new(x))
+            .entry_ref(*id)
+            .map(HashedNodeRef::new)
             .unwrap()
     }
 }
@@ -418,15 +441,15 @@ impl<TIdN: 'static + TypedNodeId<IdN = NodeIdentifier>> crate::types::TypedNodeS
     for NodeStoreInner
 {
     fn resolve(&self, id: &TIdN) -> Self::R<'_> {
-        let x = self.internal.entry_ref(id.as_id().clone()).unwrap();
+        let x = self.internal.entry_ref(*id.as_id()).unwrap();
         HashedNodeRef::new(x)
     }
 
     fn try_typed(&self, id: &<TIdN as NodeId>::IdN) -> Option<TIdN> {
-        let x = self.internal.entry_ref(id.clone()).unwrap();
+        let x = self.internal.entry_ref(*id).unwrap();
         x.get_component::<TIdN::Ty>()
             .is_ok()
-            .then(|| unsafe { TIdN::from_id(id.clone()) })
+            .then(|| unsafe { TIdN::from_id(*id) })
     }
 }
 
@@ -463,24 +486,12 @@ impl NodeStore {
         self.inner.len()
     }
 }
-impl Default for NodeStoreInner {
-    fn default() -> Self {
-        NodeStoreInner {
-            count: 0,
-            errors: 0,
-            #[cfg(feature = "subtree-stats")]
-            stats: Default::default(),
-            // roots: Default::default(),
-            internal: Default::default(),
-            hasher: Default::default(),
-        }
-    }
-}
+
 impl NodeStoreInner {
     pub fn make_dedup_map() -> DedupMap {
         DedupMap(hashbrown::HashMap::<_, (), ()>::with_capacity_and_hasher(
             1 << 21,
-            Default::default(),
+            (),
         ))
     }
 
@@ -499,10 +510,7 @@ impl NodeStore {
     pub fn new() -> Self {
         Self {
             inner: NodeStoreInner::default(),
-            dedup: hashbrown::HashMap::<_, (), ()>::with_capacity_and_hasher(
-                1 << 21,
-                Default::default(),
-            ),
+            dedup: hashbrown::HashMap::<_, (), ()>::with_capacity_and_hasher(1 << 21, ()),
         }
     }
 }
@@ -601,7 +609,7 @@ mod stores_impl {
         type RT = <NS as types::NLending<'a, <NS as NStore>::IdN>>::N;
     }
 
-    impl<'store, TS, NS, LS> HyperAST for SimpleStores<TS, NS, LS>
+    impl<TS, NS, LS> HyperAST for SimpleStores<TS, NS, LS>
     where
         TS: TypeStore,
         NS: NStore,
@@ -663,7 +671,7 @@ mod stores_impl {
         }
     }
 
-    impl<'store, TS, NS, LS> HyperAST for &SimpleStores<TS, NS, LS>
+    impl<TS, NS, LS> HyperAST for &SimpleStores<TS, NS, LS>
     where
         TS: TypeStore,
         NS: NStore,
@@ -692,7 +700,7 @@ mod stores_impl {
         type TS = TS;
     }
 
-    impl<'store, TIdN: TypedNodeId<IdN = Self::IdN>, TS, NS, LS> TypedHyperAST<TIdN>
+    impl<TIdN: TypedNodeId<IdN = Self::IdN>, TS, NS, LS> TypedHyperAST<TIdN>
         for SimpleStores<TS, NS, LS>
     where
         TIdN::Ty: TypeTrait,
@@ -802,7 +810,7 @@ where
     }
 }
 
-pub fn eq_node_cs<'a, I>(children: &'a [I]) -> impl Fn(EntryRef) -> bool + 'a
+pub fn eq_node_cs<I>(children: &[I]) -> impl Fn(EntryRef) -> bool + '_
 where
     I: 'static + Eq + Copy + std::marker::Send + std::marker::Sync,
 {
@@ -811,22 +819,16 @@ where
 
         if children.len() == 1 {
             let Ok(cs) = x.get_component::<compo::CS0<I, 1>>() else {
-                debug_assert!(x.get_component::<compo::CS<I>>().is_err());
-                debug_assert!(x.get_component::<compo::CS0<I, 2>>().is_err());
                 return false;
             };
             cs.0[0] == children[0]
         } else if children.len() == 2 {
             let Ok(cs) = x.get_component::<compo::CS0<I, 2>>() else {
-                debug_assert!(x.get_component::<compo::CS<I>>().is_err());
-                debug_assert!(x.get_component::<compo::CS0<I, 1>>().is_err());
                 return false;
             };
             cs.0[..] == children[..]
         } else if !children.is_empty() {
             let Ok(cs) = x.get_component::<compo::CS<I>>() else {
-                debug_assert!(x.get_component::<compo::CS0<I, 1>>().is_err());
-                debug_assert!(x.get_component::<compo::CS0<I, 2>>().is_err());
                 return false;
             };
             cs.0.as_ref() == children
@@ -862,3 +864,15 @@ impl CompoRegister for World {
 
 pub type RawHAST<'hast, 'acc, TS> =
     crate::store::SimpleStores<TS, &'hast NodeStoreInner, &'acc crate::store::labels::LabelStore>;
+
+pub fn subtree_builder<TS: crate::types::ETypeStore>(ty: TS::Ty) -> dyn_builder::EntityBuilder
+where
+    <TS::Ty2 as crate::types::TypeTrait>::Lang: Component,
+    TS::Ty: Component,
+{
+    use crate::types::Lang;
+    let l = <TS::Ty2 as crate::types::TypeTrait>::Lang::INST;
+    let mut builder = dyn_builder::EntityBuilder::with_lang(l);
+    crate::store::nodes::EntityBuilder::add(&mut builder, ty);
+    builder
+}

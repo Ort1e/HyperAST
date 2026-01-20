@@ -1,4 +1,6 @@
-use hyperast::types::{Childrn, NodeId, NodeStore, WithChildren};
+use hyperast::types::{Childrn, LendT, NodeId, NodeStore, WithChildren};
+
+use super::factorized_bounds;
 
 pub mod bottom_up_matcher;
 pub mod greedy_bottom_up_matcher;
@@ -8,14 +10,14 @@ pub mod marriage_bottom_up_matcher;
 pub mod simple_bottom_up_matcher3;
 
 // lazy versions, that do not decompress directly subtrees
-pub mod lazy2_greedy_bottom_up_matcher;
-pub mod lazy2_greedy_subtree_matcher;
 pub mod lazy_bottom_up_matcher;
 pub mod lazy_greedy_bottom_up_matcher;
 pub mod lazy_greedy_subtree_matcher;
 pub mod lazy_hybrid_bottom_up_matcher;
+pub mod lazy_hybrid_marriage_bottom_up_matcher;
 pub mod lazy_marriage_bottom_up_matcher;
 pub mod lazy_simple_bottom_up_matcher;
+pub mod lazy_simple_marriage_bottom_up_matcher;
 //pub mod lazy_xy_bottom_up_matcher;
 
 pub fn size<'a, IdC: Clone + NodeId<IdN = IdC>, S>(store: &'a S, x: &IdC) -> usize
@@ -23,11 +25,11 @@ where
     S: NodeStore<IdC>,
     for<'t> <S as hyperast::types::NLending<'t, IdC>>::N: WithChildren<TreeId = IdC>,
 {
-    let node = store.resolve(&x);
+    let node = store.resolve(x);
     let cs = node.children().unwrap();
     let mut z = 0;
     for x in cs.iter_children() {
-        z = z + size(store, &x);
+        z += size(store, &x);
     }
     z + 1
 }
@@ -38,7 +40,7 @@ where
     S: NodeStore<IdC>,
     for<'t> <S as hyperast::types::NLending<'t, IdC>>::N: WithChildren<TreeId = IdC>,
 {
-    let node = store.resolve(&x);
+    let node = store.resolve(x);
     let cs = node.children();
     let Some(cs) = cs else {
         return 0;
@@ -62,7 +64,7 @@ pub(crate) fn isomorphic<HAST, const HASH: bool, const STRUCTURAL: bool>(
 ) -> bool
 where
     HAST: hyperast::types::HyperAST + Copy,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: hyperast::types::WithHashs,
+    for<'t> LendT<'t, HAST>: hyperast::types::WithHashs,
     HAST::IdN: Clone + Eq,
     HAST::Label: Eq,
     HAST::IdN: NodeId<IdN = HAST::IdN>,
@@ -90,8 +92,8 @@ where
         }
     }
 
-    let src_type = hyperast.resolve_type(&src);
-    let dst_type = hyperast.resolve_type(&dst);
+    let src_type = hyperast.resolve_type(src);
+    let dst_type = hyperast.resolve_type(dst);
     if src_type != dst_type {
         return false;
     }

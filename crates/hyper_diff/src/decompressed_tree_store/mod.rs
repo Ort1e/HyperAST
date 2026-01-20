@@ -63,8 +63,11 @@ pub trait FullyDecompressedTreeStore<HAST: HyperAST + Copy, IdD>:
 
 pub trait ShallowDecompressedTreeStore<HAST: HyperAST + Copy, IdD, IdS = IdD> {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn original(&self, id: &IdD) -> HAST::IdN;
-    fn root(&self) -> IdS;
+    fn root(&self) -> IdD;
     fn child(&self, x: &IdD, p: &[impl PrimInt]) -> IdS;
     fn children(&self, x: &IdD) -> Vec<IdS>;
 }
@@ -214,11 +217,16 @@ pub trait BreadthFirstContiguousSiblings<HAST: HyperAST + Copy, IdD>:
     fn first_child(&self, id: &IdD) -> Option<IdD>;
 }
 
+pub trait RawContiguousDescendants<IdD, IdS> {
+    fn range(&self, id: &IdD) -> std::ops::Range<IdS>;
+}
+
 pub trait PostOrder<HAST: HyperAST + Copy, IdD, IdS = IdD>:
     DecompressedTreeStore<HAST, IdD, IdS>
 {
-    fn lld(&self, i: &IdD) -> IdS;
+    fn lld(&self, id: &IdD) -> IdS;
     fn tree(&self, id: &IdD) -> HAST::IdN;
+    fn has_children(&self, id: &IdD) -> bool;
 }
 
 pub trait PostOrdKeyRoots<'a, HAST: HyperAST + Copy, IdD, __ImplBound = &'a Self>:
@@ -258,7 +266,7 @@ pub struct IterKr<'a, IdD>(
     std::marker::PhantomData<*const IdD>,
 );
 
-impl<'a, IdD: PrimInt> Iterator for IterKr<'a, IdD> {
+impl<IdD: PrimInt> Iterator for IterKr<'_, IdD> {
     type Item = IdD;
 
     fn next(&mut self) -> Option<Self::Item> {

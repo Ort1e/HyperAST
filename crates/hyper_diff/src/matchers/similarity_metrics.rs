@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use num_traits::{PrimInt, ToPrimitive, cast};
 
-use crate::matchers::mapping_store::MappingStore;
+use crate::{decompressed_tree_store::Shallow, matchers::mapping_store::MappingStore};
 
 use super::mapping_store::{MonoMappingStore, VecStore};
 
@@ -37,10 +37,26 @@ impl SimilarityMeasure {
         }
     }
 
+    pub fn range_multimap<
+        Id1: PrimInt + Shallow<Src>,
+        Id2: PrimInt + Shallow<Dst>,
+        Src: PrimInt,
+        Dst: PrimInt,
+        Store: super::mapping_store::MultiRangeMappingStore<Src, Dst, Src = Id1, Dst = Id2>,
+    >(
+        src: &Range<Id1>,
+        dst: &Range<Id2>,
+        mappings: &Store,
+    ) -> Self {
+        Self {
+            ncd: number_of_common_descendants_ranges_multimap(src, dst, mappings),
+            src_l: (src.end - src.start).to_usize().unwrap(),
+            dst_l: (dst.end - dst.start).to_usize().unwrap(),
+        }
+    }
+
     pub fn chawathe(&self) -> f64 {
-        let chawathe = self.ncd as f64 / f64::max(self.src_l as f64, self.dst_l as f64);
-        //dbg!(&chawathe);
-        chawathe
+        self.ncd as f64 / f64::max(self.src_l as f64, self.dst_l as f64)
     }
 
     pub fn overlap(&self) -> f64 {
@@ -49,9 +65,7 @@ impl SimilarityMeasure {
     }
 
     pub fn dice(&self) -> f64 {
-        let dice = (2.0_f64 * (self.ncd as f64)) / (self.src_l as f64 + self.dst_l as f64);
-        //dbg!(dice);
-        dice
+        (2.0_f64 * (self.ncd as f64)) / (self.src_l as f64 + self.dst_l as f64)
     }
 
     pub fn jaccard(&self) -> f64 {
@@ -134,7 +148,7 @@ pub fn number_of_common_descendants<
     for t in src {
         if mappings.is_src(t) {
             let m = mappings.get_dst_unchecked(t).to_usize().unwrap();
-            if dst_descendants.len() != 0
+            if !dst_descendants.is_empty()
                 && min <= m
                 && m - min < dst_descendants.len()
                 && dst_descendants[m - min]
@@ -143,7 +157,7 @@ pub fn number_of_common_descendants<
             }
         }
     }
-    return common;
+    common
 }
 
 pub fn number_of_common_descendants_ranges<
@@ -156,12 +170,50 @@ pub fn number_of_common_descendants_ranges<
     mappings: &Store,
 ) -> u32 {
     (src.start.to_usize().unwrap()..src.end.to_usize().unwrap())
-        .into_iter()
         .filter(|t| mappings.is_src(&cast(*t).unwrap()))
         .filter(|t| dst.contains(&mappings.get_dst_unchecked(&cast(*t).unwrap())))
         .count()
         .try_into()
         .unwrap()
+}
+
+pub fn number_of_common_descendants_ranges_multimap<
+    Id1: PrimInt + Shallow<Src>,
+    Id2: PrimInt + Shallow<Dst>,
+    Src: PrimInt,
+    Dst: PrimInt,
+    Store: super::mapping_store::MultiRangeMappingStore<Src, Dst, Src = Id1, Dst = Id2>,
+>(
+    src: &Range<Id1>,
+    dst: &Range<Id2>,
+    mappings: &Store,
+) -> u32 {
+    (src.start.to_usize().unwrap()..src.end.to_usize().unwrap())
+        .filter(|t| mappings.is_src(&cast(*t).unwrap()))
+        .filter(|t| {
+            mappings.get_dst_ranges(&cast(*t).unwrap()).any(|y| {
+                intersection(
+                    &Range {
+                        start: dst.start.to_shallow(),
+                        end: dst.end.to_shallow(),
+                    },
+                    &y,
+                ) > num_traits::zero()
+            })
+        })
+        .count()
+        .try_into()
+        .unwrap()
+}
+
+fn intersection<Id: PrimInt>(src: &Range<Id>, dst: &Range<Id>) -> Id {
+    let start = src.start.max(dst.start);
+    let end = src.end.min(dst.end);
+    if start < end {
+        end - start
+    } else {
+        num_traits::zero()
+    }
 }
 
 pub fn number_of_common_descendants_ranges_par(

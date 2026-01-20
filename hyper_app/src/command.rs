@@ -92,8 +92,11 @@ pub enum UICommand {
     #[cfg(target_arch = "wasm32")]
     RestartWithWebGpu,
 
-    // NOTE: could take inspiration from zed on (kb) interations
+    // NOTE: could take inspiration from zed on (kb) interactions
     NewQuery,
+    OpenLastCreatedQuery,
+
+    OpenLastTab,
 
     // Compute commands:
     RunQuery,
@@ -300,6 +303,11 @@ impl UICommand {
             ),
 
             UICommand::NewQuery => ("Create new query", "Create a new tree-sitter query"),
+            UICommand::OpenLastCreatedQuery => (
+                "Open last created query",
+                "Open the last created tree-sitter query",
+            ),
+            UICommand::OpenLastTab => ("Open last inserted tab", "Open the last inserted tab"),
 
             UICommand::RunQuery => ("Run current code query", "TODO desc. RunQuery"),
             UICommand::ComputeTrackingMappingFuture => (
@@ -429,6 +437,8 @@ impl UICommand {
 
             // TODO
             UICommand::NewQuery => None,
+            UICommand::OpenLastCreatedQuery => None,
+            UICommand::OpenLastTab => None,
             UICommand::RunQuery => None,
             UICommand::ComputeTrackingMappingFuture => None,
             UICommand::ComputeTrackingMappingPast => None,
@@ -514,7 +524,7 @@ impl UICommand {
 
         if response.clicked() {
             command_sender.send_ui(self);
-            ui.close_menu();
+            ui.close();
         }
 
         response
@@ -524,7 +534,7 @@ impl UICommand {
         let mut button = if let Some(icon) = self.icon() {
             egui::Button::image_and_text(
                 icon.as_image()
-                    .fit_to_exact_size(re_ui::DesignTokens::small_icon_size()),
+                    .fit_to_exact_size(re_ui::design_tokens_of(egui::Theme::Dark).small_icon_size),
                 self.text(),
             )
         } else {
@@ -546,7 +556,7 @@ impl UICommand {
             Default::default()
         }
     }
-
+    #[expect(unused)] //TODO use it
     pub fn tooltip_with_shortcut(self, egui_ctx: &egui::Context) -> String {
         format!(
             "{}{}",

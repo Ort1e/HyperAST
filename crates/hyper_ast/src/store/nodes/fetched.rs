@@ -127,6 +127,7 @@ impl From<crate::store::nodes::legion::NodeIdentifier> for NodeIdentifier {
     fn from(id: crate::store::nodes::legion::NodeIdentifier) -> Self {
         let id: u64 = unsafe { std::mem::transmute(id) };
         // WARN cast to smaller container
+        assert!(id <= u32::MAX as u64);
         let id = id as u32;
         Self(core::num::NonZeroU32::new(id).unwrap())
     }
@@ -152,6 +153,7 @@ impl Hash for NodeIdentifier {
     }
 }
 
+#[cfg_attr(feature = "native", derive(Default))]
 pub struct FetchedLabels(HashMap<LabelIdentifier, String>);
 
 impl crate::types::LabelStore<str> for FetchedLabels {
@@ -179,13 +181,6 @@ impl FetchedLabels {
     }
     pub fn insert(&mut self, k: LabelIdentifier, v: String) -> Option<String> {
         self.0.insert(k, v)
-    }
-}
-
-#[cfg(feature = "native")]
-impl Default for FetchedLabels {
-    fn default() -> Self {
-        Self(Default::default())
     }
 }
 
@@ -309,6 +304,12 @@ impl<'a, Id> super::ErasedHolder for HashedNodeRef<'a, Id> {
     }
 }
 
+impl<'a, Id> super::PolyglotHolder for HashedNodeRef<'a, Id> {
+    fn lang_id(&self) -> super::LangId {
+        unimplemented!()
+    }
+}
+
 impl<'a, T: TypedNodeId> crate::types::Tree for HashedNodeRef<'a, T> {
     fn has_children(&self) -> bool {
         match self.s_ref {
@@ -415,6 +416,19 @@ macro_rules! variant_store {
                         rev: Default::default(),
                         $($d: Default::default(),)*
 
+                    }
+                }
+                pub fn remove_if(&mut self, predicate: impl Fn(&$rev) -> bool) {
+                    let mut i = 0;
+                    while i < self.rev.len() {
+                        if predicate(&self.rev[i]) {
+                            self.rev.remove(i);
+                            $(
+                                self.$d.remove(i);
+                            )*
+                        } else {
+                            i += 1;
+                        }
                     }
                 }
             }
@@ -527,6 +541,11 @@ macro_rules! variant_store {
             }
         }
         impl RawVariant {
+            pub fn remove_if(&mut self, predicate: impl Fn(&$rev) -> bool) {
+                match self {$(
+                    RawVariant::$c{ entities, ..} => entities.remove_if(predicate),
+                )*}
+            }
             pub fn rev(&self) -> &Vec<$rev> {
                 match self {$(
                     RawVariant::$c{ entities: variants::$c{rev, ..}, ..} => &rev,
@@ -621,6 +640,7 @@ variant_store!(NodeIdentifier, NodeIdentifier;
 );
 
 // #[derive(Default)]
+#[derive(Default)]
 pub struct SimplePackedBuilder {
     // // label_ids: Vec<LabelIdentifier>,
     stockages: HashMap<Arch<&'static str>, RawVariant>,
@@ -637,14 +657,6 @@ impl<S: Hash> Hash for Arch<S> {
     }
 }
 
-impl Default for SimplePackedBuilder {
-    fn default() -> Self {
-        Self {
-            stockages: Default::default(),
-        }
-    }
-}
-
 impl SimplePackedBuilder {
     pub fn add<'store, HAST: crate::types::HyperAST>(&mut self, store: &'store HAST, id: &HAST::IdN)
     where
@@ -654,9 +666,11 @@ impl SimplePackedBuilder {
         HAST::Label: Into<LabelIdentifier> + Clone,
     {
         use crate::types::NodeStore;
-        let node = store.node_store().resolve(id);
+        let Some(node) = store.node_store().try_resolve(id) else {
+            return;
+        };
         let ty = store.resolve_type(id);
-        let id = id.clone().into();
+        let id = (*id).into();
         let lang = ty.get_lang();
         use crate::types::LangRef;
         let lang_name = lang.name();
@@ -764,7 +778,8 @@ pub struct SimplePacked<S> {
     // label_ids: Vec<LabelIdentifier>,
     // labels: Vec<String>,
     storages_arch: Vec<Arch<S>>,
-    storages_variants: Vec<RawVariant>,
+    #[doc(hidden)]
+    pub storages_variants: Vec<RawVariant>,
 }
 
 impl<'a> crate::types::NLending<'a, NodeIdentifier> for NodeStore {
@@ -782,18 +797,21 @@ impl NodeStore {
         let (variant, offset) = self.index.get(&id)?;
         Some(self.variants[*variant as usize].get(*offset))
     }
+    pub fn contains(&self, id: NodeIdentifier) -> bool {
+        self.index.get(&id).is_some()
+    }
     pub fn unavailable_node<T>(&self) -> HashedNodeRef<'_, T> {
         HashedNodeRef {
             index: 0,
             s_ref: VariantRef::Typed {
-                entities: UNAILABLE_NODE,
+                entities: UNAVAILABLE_NODE,
             },
             phantom: PhantomData,
         }
     }
 }
 
-const UNAILABLE_NODE: &'static variants::Typed = &variants::Typed {
+const UNAVAILABLE_NODE: &'static variants::Typed = &variants::Typed {
     lang: "",
     rev: vec![],
     kind: vec![],
@@ -821,30 +839,56 @@ impl NodeStore {
 
     pub fn extend(&mut self, raw: SimplePacked<String>) {
         for (arch, entities) in raw.storages_arch.into_iter().zip(raw.storages_variants) {
-            self._extend_from_raw(arch, entities)
+            if let Ok(_) = self._extend_from_raw(arch, entities) {}
         }
     }
 
-    fn _extend_from_raw(&mut self, arch: Arch<String>, entities: RawVariant) {
+    #[allow(clippy::result_large_err)]
+    fn _extend_from_raw(
+        &mut self,
+        arch: Arch<String>,
+        entities: RawVariant,
+    ) -> Result<u32, RawVariant> {
+        use hashbrown::hash_map::Entry::{Occupied, Vacant};
         match self.vindex.entry(arch) {
-            hashbrown::hash_map::Entry::Occupied(occ) => {
+            Occupied(occ) => {
+                let vid = *occ.get();
                 let var = &mut self.variants[*occ.get() as usize];
                 let mut offset = var.rev().len() as u32;
+                let revs = entities.rev();
+                // shortcut
+                if revs.len() == 1 {
+                    let ent = revs[0];
+                    if self.index.try_insert(ent, (vid, offset)).is_err() {
+                        return Ok(offset);
+                    };
+                    var.extend_raw(entities);
+                    offset += 1;
+                    return Ok(offset);
+                }
                 for ent in entities.rev() {
-                    self.index.insert(*ent, (*occ.get() as u32, offset));
+                    if self.index.try_insert(*ent, (vid, offset)).is_err() {
+                        // unimplemented!();
+                        log::error!("redundant nodes: {}", revs.len());
+                        return Err(entities);
+                    };
                     offset += 1;
                 }
                 var.extend_raw(entities);
+                return Ok(offset);
             }
-            hashbrown::hash_map::Entry::Vacant(vac) => {
-                let len = self.variants.len();
-                vac.insert(len as u32);
+            Vacant(vac) => {
+                let vid = self.variants.len() as u32;
+                vac.insert(vid);
                 let mut offset = 0;
                 for ent in entities.rev() {
-                    self.index.insert(*ent, (len as u32, offset));
+                    if self.index.insert(*ent, (vid, offset)).is_some() {
+                        unimplemented!("does not support modifications of variants");
+                    };
                     offset += 1;
                 }
                 self.variants.push(entities.into());
+                Ok(offset)
             }
         }
     }
