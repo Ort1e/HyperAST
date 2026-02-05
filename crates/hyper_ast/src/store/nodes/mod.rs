@@ -113,26 +113,18 @@ pub trait CompoRegister {
 
 pub struct LangId {
     id: std::any::TypeId,
-    #[cfg(debug_assertions)]
-    name: &'static str,
+    
 }
 
 impl LangId {
     pub fn new<T: 'static>() -> Self {
         LangId {
             id: std::any::TypeId::of::<T>(),
-            #[cfg(debug_assertions)]
-            name: std::any::type_name::<T>(),
         }
     }
 
     pub fn is<T: 'static>(&self) -> bool {
         self.id == std::any::TypeId::of::<T>()
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn name(&self) -> &'static str {
-        self.name
     }
 }
 

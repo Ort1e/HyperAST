@@ -719,8 +719,6 @@ impl<Id> crate::store::nodes::PolyglotHolder for HashedNodeRef<'_, Id> {
         // TODO add debug assert verifying that it is a valid language identifier
         crate::store::nodes::LangId {
             id: lang.type_id(),
-            #[cfg(debug_assertions)]
-            name: lang.name,
         }
     }
 }
