@@ -1,4 +1,5 @@
 use core::panic;
+use std::any::Any;
 
 use hyperast::types::{AnyType, HyperType, LangRef, LangWrapper, TypeStore};
 
@@ -111,10 +112,6 @@ impl TypeStore for TStore {
         if let Some(t) = Self::try_decompress_type(erazed, _tid) {
             return t;
         }
-        #[cfg(not(debug_assertions))]
-        panic!();
-        let id = erazed.lang_id();
-        #[cfg(debug_assertions)]
-        panic!("{} is not handled", id.name());
+        panic!("language is not handled");
     }
 }
