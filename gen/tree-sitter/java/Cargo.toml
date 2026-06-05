@@ -1,6 +1,6 @@
 [package]
 name = "hyperast_gen_ts_java"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 [lints]
@@ -52,12 +52,7 @@ cc = "*"
 [dev-dependencies]
 pretty_assertions = "1.0.0"
 env_logger = "0.11.3"
-criterion = { version = "0.6.0", features = [
-    "rayon",
-    "plotters",
-    "cargo_bench_support",
-    "html_reports",
-] }
+criterion = { workspace = true }
 hyperast_tsquery = { workspace = true }
 hyperast_gen_ts_tsquery = { workspace = true }
 

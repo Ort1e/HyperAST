@@ -14,15 +14,15 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use hyperast::types::{Stored, WithChildren};
 use num_traits::{PrimInt, ToPrimitive};
 
-use crate::decompressed_tree_store::{
-    DecompressedTreeStore, DecompressedWithParent, PostOrderIterable,
-};
-use crate::mapping::CmBuilder;
-use crate::matchers::mapping_store::VecStore;
-use crate::matchers::mapping_store::{MappingStore, MonoMappingStore};
+use hyperast::types::{Stored, WithChildren};
+
+use super::CmBuilder;
+use crate::decompressed_tree_store::PostOrderIterable;
+use crate::decompressed_tree_store::{DecompressedTreeStore, DecompressedWithParent};
+use crate::mappings::VecStore;
+use crate::mappings::{MappingStore, MonoMappingStore};
 use crate::tree::tree_path::TreePath;
 
 use super::CompressedMappingStore;
@@ -148,14 +148,14 @@ pub struct CompressorHelper<'m, 'a, T: WithChildren, IdD, CM: CompressedMappingS
 }
 
 impl<
-        'm,
-        'a,
-        T: WithChildren,
-        IdD: PrimInt,
-        CM: CompressedMappingStore<Idx = T::ChildIdx>,
-        Dsrc,
-        Ddst,
-    > CompressorHelper<'m, 'a, T, IdD, CM, Dsrc, Ddst>
+    'm,
+    'a,
+    T: WithChildren,
+    IdD: PrimInt,
+    CM: CompressedMappingStore<Idx = T::ChildIdx>,
+    Dsrc,
+    Ddst,
+> CompressorHelper<'m, 'a, T, IdD, CM, Dsrc, Ddst>
 where
     Dsrc: DecompressedTreeStore<'a, T, IdD> + DecompressedWithParent<'a, T, IdD>,
     Ddst: DecompressedTreeStore<'a, T, IdD> + DecompressedWithParent<'a, T, IdD>,
@@ -277,14 +277,14 @@ pub struct Compressor<'m, 'a, T: WithChildren, IdD, CM: CompressedMappingStore, 
 }
 
 impl<
-        'm,
-        'a,
-        T: WithChildren,
-        IdD: PrimInt,
-        CM: CompressedMappingStore<Idx = T::ChildIdx>,
-        Dsrc,
-        Ddst,
-    > Compressor<'m, 'a, T, IdD, CM, Dsrc, Ddst>
+    'm,
+    'a,
+    T: WithChildren,
+    IdD: PrimInt,
+    CM: CompressedMappingStore<Idx = T::ChildIdx>,
+    Dsrc,
+    Ddst,
+> Compressor<'m, 'a, T, IdD, CM, Dsrc, Ddst>
 where
     Dsrc: DecompressedTreeStore<'a, T, IdD> + DecompressedWithParent<'a, T, IdD>,
     Ddst: DecompressedWithParent<'a, T, IdD> + PostOrderIterable<'a, T, IdD>,
@@ -479,20 +479,18 @@ mod test {
 
     use hyperast::types::{DecompressedSubtree, SimpleStores};
 
-    use crate::{
-        decompressed_tree_store::{CompletePostOrder, DecompressedWithParent, PostOrderIterable},
-        mapping::{
-            compress::{Compressor, CompressorHelper, MappedHelper},
-            remapping::Remapper,
-            visualize::print_mappings_no_ranges,
-            ArenaMStore, CompressedMappingStore, SimpleCompressedMapping,
-        },
-        matchers::mapping_store::{self, DefaultMappingStore, MappingStore},
-        tests::examples,
-        tree::{
-            simple_tree::{vpair_to_stores, Tree, TreeRef},
-            tree_path::{self, TreePath},
-        },
+    use crate::decompressed_tree_store::{
+        CompletePostOrder, DecompressedWithParent, PostOrderIterable,
+    };
+    use crate::mapping::compress::{Compressor, CompressorHelper, MappedHelper};
+    use crate::mapping::remapping::Remapper;
+    use crate::mapping::visualize::print_mappings_no_ranges;
+    use crate::mapping::{ArenaMStore, CompressedMappingStore, SimpleCompressedMapping};
+    use crate::mappings::{self, DefaultMappingStore, MappingStore};
+    use crate::tests::examples;
+    use crate::tree::{
+        simple_tree::{Tree, TreeRef, vpair_to_stores},
+        tree_path::{self, TreePath},
     };
 
     use crate::decompressed_tree_store::ShallowDecompressedTreeStore;

@@ -136,9 +136,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     type P<IdN, Idx> = CursorWithPersistence<IdN, Idx>;
     type R = RichResult<usize>;
@@ -173,9 +172,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     fn can_skip<N: WithPrecompQueries>(&self, n: &N) -> bool {
         self.used_precomputed != 0 && n.wont_match_given_precomputed_queries(self.used_precomputed)

@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::ops::AddAssign;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use hyperast::position::structural_pos::{CursorHead, CursorWithPersistence};
 use hyperast::store::TyDown;
@@ -86,9 +86,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     type P<IdN, Idx> = CursorWithPersistence<IdN, Idx>;
     type R = HashesAccumulator;
@@ -101,9 +100,8 @@ where
     ) -> Self::P<HAST::IdN, HAST::Idx>
     where
         HAST::IdN: Copy + Debug,
-        for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+        for<'t> hyperast::types::LendT<'t, HAST>:
             WithPrecompQueries + WithRoles + WithStats + WithHashs,
-        HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
     {
         use hyperast_tsquery::hyperast_opt::TreeCursor;
         let cursor = TreeCursor::new(stores, pos);
@@ -131,9 +129,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     fn can_skip<N: WithPrecompQueries>(&self, n: &N) -> bool {
         let used_precomputed = self.query.used_precomputed;
@@ -230,9 +227,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     type P<IdN, Idx> = CursorWithPersistence<IdN, Idx>;
     type R = HashInstAccumulator<HAST::IdN>;
@@ -274,9 +270,8 @@ where
     HAST::TS: hyperast::types::TypeStore + hyperast::types::RoleStore,
     <HAST::TS as hyperast::types::RoleStore>::IdF: Into<u16> + From<u16>,
     HAST::IdN: Copy + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT:
+    for<'t> hyperast::types::LendT<'t, HAST>:
         WithPrecompQueries + WithRoles + WithStats + WithHashs,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     fn can_skip<N: WithPrecompQueries>(&self, n: &N) -> bool {
         let used_precomputed = self.query.used_precomputed;
@@ -328,6 +323,22 @@ where
     std::dbg!(memusage().to_string());
     let mut rw = commit_rw(commit, Some(config.depth), &repository.repo).unwrap();
     let commits = repositories.pre_process_chunk(&mut rw, &repository, first_chunk);
+    cumulative.nodes_first_commit = if let Some(oid) = commits.first() {
+        let commit = repositories.get_commit(&repository.config, &oid).unwrap();
+        let stores = repositories.processor.main_stores.with_ts::<TS>();
+        stores.node_store.resolve(commit.ast_root).size()
+    } else {
+        0
+    };
+
+    cumulative.total_nodes = commits
+        .iter()
+        .map(|oid| {
+            let commit = repositories.get_commit(&repository.config, &oid).unwrap();
+            let stores = repositories.processor.main_stores.with_ts::<TS>();
+            stores.node_store.resolve(commit.ast_root).size()
+        })
+        .sum();
     if let Err(err) = cumulative.commit_prepared(commits.len()) {
         std::eprintln!("{err}");
     }
@@ -422,6 +433,9 @@ pub struct UniqInst {
     // prev_struc: u32,
     // prev_label: u32,
     start_time: Instant,
+    pub initial_prepare_duration: Option<Duration>,
+    pub nodes_first_commit: usize,
+    pub total_nodes: usize,
     timeout: Timeout,
 }
 
@@ -432,6 +446,9 @@ impl UniqInst {
             // prev_struc: 0,
             // prev_label: 0,
             start_time: Instant::now(),
+            initial_prepare_duration: None,
+            total_nodes: 0,
+            nodes_first_commit: 0,
             timeout,
         }
     }
@@ -443,6 +460,7 @@ impl ResultLogger<HashInstAccumulator> for UniqInst {
         &mut self,
         entry: crate::LogEntry<HashInstAccumulator>,
     ) -> Result<(), crate::TimeoutError> {
+        let duration = self.start_time.elapsed();
         if let crate::LogEntry::ExecuteQueryOnCommit(r, _) = entry {
             dbg!(r.vec.inst.len());
             assert_eq!(r.vec.inst.len(), r.vec.struc.len());
@@ -453,9 +471,12 @@ impl ResultLogger<HashInstAccumulator> for UniqInst {
             }
             dbg!(self.set.len());
             // }
+        } else if let crate::LogEntry::PrepareCommits(_) = entry {
+            if self.initial_prepare_duration.is_none() {
+                self.initial_prepare_duration = Some(duration)
+            }
         }
 
-        let duration = self.start_time.elapsed();
         if duration > self.timeout.0 {
             Err(crate::TimeoutError(duration))
         } else {

@@ -1,16 +1,13 @@
-use std::{
-    fmt::{Debug, Display, Write},
-    hash::Hash,
-    marker::PhantomData,
-};
+use std::fmt::{Debug, Display, Write};
+use std::hash::Hash;
+use std::marker::PhantomData;
 
 use num::ToPrimitive;
 
-use crate::types::Childrn;
-use crate::{
-    impact::serialize::{Keyed, MySerialize},
-    types::{AstLending, HyperAST, HyperType, NodeId, RoleStore},
-};
+use crate::impact::serialize::{Keyed, MySerialize};
+use crate::types::NodeId;
+use crate::types::{Childrn, LendT};
+use crate::types::{HyperAST, HyperType, RoleStore};
 
 // pub type TypeIdentifier = Type;
 
@@ -552,7 +549,7 @@ where
     HAST::TS: RoleStore,
     HAST::IdN: std::fmt::Debug,
     <HAST::TS as RoleStore>::Role: std::fmt::Display,
-    for<'t> <HAST as AstLending<'t>>::RT: crate::types::WithRoles,
+    for<'t> LendT<'t, HAST>: crate::types::WithRoles,
     HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -767,7 +764,7 @@ where
     HAST::TS: RoleStore,
     HAST::IdN: std::fmt::Debug,
     <HAST::TS as RoleStore>::Role: std::fmt::Display,
-    for<'t> <HAST as AstLending<'t>>::RT: crate::types::WithRoles,
+    for<'t> LendT<'t, HAST>: crate::types::WithRoles,
     HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     // pub fn tree_syntax_with_ids(

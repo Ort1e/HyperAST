@@ -1,20 +1,20 @@
-use super::DiffResult;
-use super::tr;
 use std::fmt::Debug;
 
-use super::CDS;
-use super::DiffRes;
+use hyperast::PrimInt;
+use hyperast::types::{HyperAST, LendT};
+use hyperast::types::{WithHashs, WithStats};
+
+use super::{CDS, DiffRes, DiffResult, IdD, tr};
 use crate::actions::script_generator2::ScriptGenerator;
 use crate::algorithms::check_oneshot_decompressed_against_lazy;
 use crate::decompressed_tree_store::bfs_wrapper::SimpleBfsMapper;
+use crate::mappings::{DefaultMultiMappingStore, MappingStore, VecStore};
 use crate::matchers::Mapper;
-use crate::matchers::mapping_store::{DefaultMultiMappingStore, MappingStore, VecStore};
-use hyperast::types::{self, HyperAST, NodeId};
-
 use crate::matchers::heuristic::gt::greedy_bottom_up_matcher::GreedyBottomUpMatcher;
 use crate::matchers::heuristic::gt::greedy_subtree_matcher::GreedySubtreeMatcher;
 
-type MM = DefaultMultiMappingStore<u32>;
+type M = VecStore<IdD>;
+type MM = DefaultMultiMappingStore<IdD>;
 
 pub fn diff<HAST: HyperAST + Copy>(
     hyperast: HAST,
@@ -22,11 +22,10 @@ pub fn diff<HAST: HyperAST + Copy>(
     dst: &HAST::IdN,
 ) -> DiffRes<HAST>
 where
+    HAST::Idx: PrimInt,
     HAST::IdN: Clone + Debug + Eq,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
-    HAST::Idx: hyperast::PrimInt,
     HAST::Label: Debug + Clone + Copy + Eq,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: types::WithHashs + types::WithStats,
+    for<'t> LendT<'t, HAST>: WithHashs + WithStats,
 {
     let measure = super::DefaultMetricSetup::prepare();
     let mapper: Mapper<_, CDS<HAST>, CDS<HAST>, VecStore<_>> =
@@ -48,15 +47,11 @@ where
 
     let measure = measure.stop_then_prepare();
 
-    let mapper = mapper.map(
-        |x| x,
-        // the dst side has to be traversed in bfs for chawathe
-        |dst_arena| SimpleBfsMapper::with_store(hyperast, dst_arena),
-    );
+    let mapper = mapper.map_dst(SimpleBfsMapper::make);
 
     let measure = measure.start();
     let actions = ScriptGenerator::compute_actions(hyperast, &mapper.mapping).ok();
-    let mapper = mapper.map(|x| x, |dst_arena| dst_arena.back);
+    let mapper = mapper.map_dst(|dst_arena| dst_arena.back);
 
     let exec_data = measure.stop();
 
@@ -73,11 +68,10 @@ pub fn diff_100<HAST: HyperAST + Copy>(
     dst: &HAST::IdN,
 ) -> DiffRes<HAST>
 where
+    HAST::Idx: PrimInt,
     HAST::IdN: Clone + Debug + Eq,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
-    HAST::Idx: hyperast::PrimInt,
     HAST::Label: Debug + Clone + Copy + Eq,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: types::WithHashs + types::WithStats,
+    for<'t> LendT<'t, HAST>: WithHashs + WithStats,
 {
     let measure = super::DefaultMetricSetup::prepare();
     let mapper: Mapper<_, CDS<HAST>, CDS<HAST>, VecStore<_>> =
@@ -93,19 +87,15 @@ where
 
     let measure = measure.stop_then_skip_prepare();
 
-    let mapper = GreedyBottomUpMatcher::<_, 100>::match_it(mapper);
+    let mapper = GreedyBottomUpMatcher::<_, M, 100>::match_it(mapper);
 
     let measure = measure.stop_then_prepare();
 
-    let mapper = mapper.map(
-        |x| x,
-        // the dst side has to be traversed in bfs for chawathe
-        |dst_arena| SimpleBfsMapper::with_store(hyperast, dst_arena),
-    );
+    let mapper = mapper.map_dst(SimpleBfsMapper::make);
 
     let measure = measure.start();
     let actions = ScriptGenerator::compute_actions(hyperast, &mapper.mapping).ok();
-    let mapper = mapper.map(|x| x, |dst_arena| dst_arena.back);
+    let mapper = mapper.map_dst(|dst_arena| dst_arena.back);
 
     let exec_data = measure.stop();
 
@@ -122,11 +112,10 @@ pub fn diff_subtree<HAST: HyperAST + Copy>(
     dst: &HAST::IdN,
 ) -> DiffRes<HAST>
 where
+    HAST::Idx: PrimInt,
     HAST::IdN: Clone + Debug + Eq,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
-    HAST::Idx: hyperast::PrimInt,
     HAST::Label: Debug + Clone + Copy + Eq,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: types::WithHashs + types::WithStats,
+    for<'t> LendT<'t, HAST>: WithHashs + WithStats,
 {
     let measure = super::DefaultMetricSetup::prepare();
     let mapper: Mapper<_, CDS<HAST>, CDS<HAST>, VecStore<_>> =
@@ -143,15 +132,11 @@ where
     let measure = measure.stop_then_skip_prepare();
     let measure = measure.stop_then_prepare();
 
-    let mapper = mapper.map(
-        |x| x,
-        // the dst side has to be traversed in bfs for chawathe
-        |dst_arena| SimpleBfsMapper::with_store(hyperast, dst_arena),
-    );
+    let mapper = mapper.map_dst(SimpleBfsMapper::make);
 
     let measure = measure.start();
     let actions = ScriptGenerator::compute_actions(hyperast, &mapper.mapping).ok();
-    let mapper = mapper.map(|x| x, |dst_arena| dst_arena.back);
+    let mapper = mapper.map_dst(|dst_arena| dst_arena.back);
 
     let exec_data = measure.stop();
 

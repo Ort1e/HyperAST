@@ -125,7 +125,6 @@ where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
     for<'t> LendT<'t, HAST>: WithRoles,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     type NR = super::NodeRefK<'a, 'hast, HAST>;
 }
@@ -143,7 +142,6 @@ where
     HAST::TS: RoleStore,
     for<'t> LendT<'t, HAST>: WithRoles,
     for<'t> LendT<'t, HAST>: WithPrecompQueries,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     type Node = super::Node<'hast, HAST>;
 
@@ -291,7 +289,6 @@ where
     HAST::TS: RoleStore,
     for<'t> LendT<'t, HAST>: WithRoles,
     for<'t> LendT<'t, HAST>: WithPrecompQueries,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     use crate::Cursor;
     let mut field_id = Default::default();
@@ -427,7 +424,7 @@ fn goto_parent<HAST: HyperAST>(
     pos: &mut impl CursorHead<HAST::IdN, HAST::Idx>,
 ) -> bool
 where
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    HAST::IdN: hyperast::types::UniformNodeId,
     HAST::IdN: Copy,
 {
     loop {
@@ -448,7 +445,7 @@ fn goto_parent_virt<HAST: HyperAST>(
     pos: &mut impl CursorHead<HAST::IdN, HAST::Idx>,
 ) -> Option<()>
 where
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    HAST::IdN: hyperast::types::UniformNodeId,
     HAST::IdN: Copy,
 {
     loop {
@@ -469,7 +466,7 @@ fn goto_next_sibling_internal<HAST: HyperAST>(
     pos: &mut impl CursorHeadMove<HAST::IdN, HAST::Idx>,
 ) -> bool
 where
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    HAST::IdN: hyperast::types::UniformNodeId,
     HAST::IdN: Copy,
 {
     use hyperast::types::NodeStore;
@@ -512,7 +509,6 @@ fn goto_first_child_internal<HAST: HyperAST>(
 ) -> bool
 where
     HAST::IdN: Copy,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
 {
     use hyperast::types::{Children, NodeStore, WithChildren};
     let mut o = num::zero();

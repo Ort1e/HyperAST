@@ -259,7 +259,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8acc5369981196006228e28809f761875c0327210a891e941f4c683b3a99529b"
 dependencies = [
  "anstyle",
- "anstyle-parse",
+ "anstyle-parse 0.2.6",
+ "anstyle-query",
+ "anstyle-wincon",
+ "colorchoice",
+ "is_terminal_polyfill",
+ "utf8parse",
+]
+
+[[package]]
+name = "anstream"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d"
+dependencies = [
+ "anstyle",
+ "anstyle-parse 1.0.0",
  "anstyle-query",
  "anstyle-wincon",
  "colorchoice",
@@ -278,6 +293,15 @@ name = "anstyle-parse"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b2d16507662817a6a20a9ea92df6652ee4f94f914589377d69f3b21bc5798a9"
+dependencies = [
+ "utf8parse",
+]
+
+[[package]]
+name = "anstyle-parse"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e"
 dependencies = [
  "utf8parse",
 ]
@@ -1151,7 +1175,7 @@ checksum = "7b7e4c2464d97fe331d41de9d5db0def0a96f4d823b8b32a2efd503578988973"
 
 [[package]]
 name = "backend"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "automerge",
  "autosurgeon",
@@ -1827,7 +1851,7 @@ version = "4.5.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22a7ef7f676155edfb82daa97f99441f3ebf4a58d5e32f295a56259f1b6facc8"
 dependencies = [
- "anstream",
+ "anstream 0.6.18",
  "anstyle",
  "clap_lex 0.7.4",
  "strsim 0.11.1",
@@ -2135,9 +2159,9 @@ dependencies = [
 
 [[package]]
 name = "cpp_demangle"
-version = "0.3.5"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eeaa953eaad386a53111e47172c2fedba671e5684c8dd601a5f474f4f118710f"
+checksum = "0667304c32ea56cb4cd6d2d7c0cfe9a2f8041229db8c033af7f8d69492429def"
 dependencies = [
  "cfg-if",
 ]
@@ -2170,7 +2194,7 @@ dependencies = [
  "cast",
  "ciborium",
  "clap 4.5.32",
- "criterion-plot 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion-plot 0.5.0",
  "is-terminal",
  "itertools 0.10.5",
  "num-traits",
@@ -2188,37 +2212,14 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bf7af66b0989381bd0be551bd7cc91912a655a58c6918420c9527b1fd8b4679"
+version = "0.6.1"
+source = "git+https://github.com/quentinLeDilavrec/criterion.rs?rev=4ad431f1893f4963f477f724620c543cff2835e9#4ad431f1893f4963f477f724620c543cff2835e9"
 dependencies = [
  "anes",
  "cast",
  "ciborium",
  "clap 4.5.32",
- "criterion-plot 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "itertools 0.13.0",
- "num-traits",
- "oorandom",
- "plotters",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "tinytemplate",
- "walkdir",
-]
-
-[[package]]
-name = "criterion"
-version = "0.6.0"
-source = "git+https://github.com/quentinLeDilavrec/criterion.rs?rev=0301588ad4e88e7911330a77c4bc1edee6677c27#0301588ad4e88e7911330a77c4bc1edee6677c27"
-dependencies = [
- "anes",
- "cast",
- "ciborium",
- "clap 4.5.32",
- "criterion-plot 0.5.0 (git+https://github.com/quentinLeDilavrec/criterion.rs?rev=0301588ad4e88e7911330a77c4bc1edee6677c27)",
+ "criterion-plot 0.5.1",
  "itertools 0.13.0",
  "num-traits",
  "oorandom",
@@ -2253,8 +2254,8 @@ dependencies = [
 
 [[package]]
 name = "criterion-plot"
-version = "0.5.0"
-source = "git+https://github.com/quentinLeDilavrec/criterion.rs?rev=0301588ad4e88e7911330a77c4bc1edee6677c27#0301588ad4e88e7911330a77c4bc1edee6677c27"
+version = "0.5.1"
+source = "git+https://github.com/quentinLeDilavrec/criterion.rs?rev=4ad431f1893f4963f477f724620c543cff2835e9#4ad431f1893f4963f477f724620c543cff2835e9"
 dependencies = [
  "cast",
  "itertools 0.13.0",
@@ -2745,7 +2746,7 @@ dependencies = [
 
 [[package]]
 name = "egui_addon"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "accesskit",
  "console_error_panic_hook",
@@ -2862,7 +2863,7 @@ dependencies = [
 [[package]]
 name = "egui_graphs"
 version = "0.28.0"
-source = "git+https://github.com/quentinLeDilavrec/egui_graphs?rev=9e83f82cb63f0733029de8c89950af27c8bac04f#9e83f82cb63f0733029de8c89950af27c8bac04f"
+source = "git+https://github.com/quentinLeDilavrec/egui_graphs?rev=dff8890ee4f50e57b0059a17fd8c7df940e35fe6#dff8890ee4f50e57b0059a17fd8c7df940e35fe6"
 dependencies = [
  "crossbeam",
  "egui",
@@ -3070,7 +3071,7 @@ version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13fa619b91fb2381732789fc5de83b45675e882f66623b7d8cb4f643017018d"
 dependencies = [
- "anstream",
+ "anstream 0.6.18",
  "anstyle",
  "env_filter",
  "humantime",
@@ -3172,6 +3173,12 @@ name = "error-code"
 version = "3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5d9305ccc6942a704f4335694ecd3de2ea531b114ac2d51f5f843750787a92f"
+
+[[package]]
+name = "escape8259"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5692dd7b5a1978a5aeb0ce83b7655c58ca8efdcb79d21036ea249da95afec2c6"
 
 [[package]]
 name = "etcetera"
@@ -4218,7 +4225,7 @@ dependencies = [
 
 [[package]]
 name = "hyper_app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ahash 0.8.11",
  "async_executors",
@@ -4289,10 +4296,10 @@ dependencies = [
 
 [[package]]
 name = "hyper_diff"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitvec",
- "criterion 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion 0.6.1",
  "enum-map",
  "env_logger 0.11.5",
  "hungarian",
@@ -4311,7 +4318,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bevy_ecs",
  "bitvec",
@@ -4343,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_benchmark"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cfg-if",
  "env_logger 0.9.3",
@@ -4360,13 +4367,13 @@ dependencies = [
 
 [[package]]
 name = "hyperast_benchmark_diffs"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitvec",
  "byteorder",
  "cfg-if",
  "const-chunks",
- "criterion 0.6.0 (git+https://github.com/quentinLeDilavrec/criterion.rs?rev=0301588ad4e88e7911330a77c4bc1edee6677c27)",
+ "criterion 0.6.1",
  "criterion-perf-events",
  "env_logger 0.11.5",
  "hashbrown 0.13.2",
@@ -4392,7 +4399,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_benchmark_search"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap 4.5.32",
  "env_logger 0.11.5",
@@ -4416,7 +4423,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_benchmark_smells"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base16ct",
  "bitvec",
@@ -4446,7 +4453,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_c"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "atomic-counter",
  "bitvec",
@@ -4469,7 +4476,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_cpp"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "atomic-counter",
  "bitvec",
@@ -4495,14 +4502,14 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_java"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "atomic-counter",
  "bitvec",
  "cc",
  "cfg-if",
  "controlled-option",
- "criterion 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion 0.6.1",
  "enumset",
  "env_logger 0.11.5",
  "hashbrown 0.14.5",
@@ -4528,7 +4535,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_ts"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "atomic-counter",
  "bitvec",
@@ -4551,13 +4558,13 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_tsquery"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "atomic-counter",
  "bitvec",
  "cfg-if",
  "controlled-option",
- "criterion 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion 0.6.1",
  "enumset",
  "env_logger 0.11.5",
  "hashbrown 0.14.5",
@@ -4581,7 +4588,7 @@ dependencies = [
 
 [[package]]
 name = "hyperast_gen_ts_xml"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "hashbrown 0.14.5",
  "hyperast",
@@ -4597,23 +4604,26 @@ dependencies = [
 
 [[package]]
 name = "hyperast_tsquery"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "hyperast",
+ "libtest-mimic",
  "log",
  "num",
+ "pretty_assertions",
  "ref-cast",
  "regex",
  "tree-sitter",
  "tree-sitter-graph",
  "tree-sitter-java 0.21.0",
+ "tree-sitter-query",
 ]
 
 [[package]]
 name = "hyperast_vcs_git"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
- "criterion 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "criterion 0.6.1",
  "enumset",
  "env_logger 0.11.5",
  "git2",
@@ -5390,6 +5400,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "libtest-mimic"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14e6ba06f0ade6e504aff834d7c34298e5155c6baca353cc6a4aaff2f9fd7f33"
+dependencies = [
+ "anstream 1.0.0",
+ "anstyle",
+ "clap 4.5.32",
+ "escape8259",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5613,15 +5635,6 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
-
-[[package]]
-name = "memmap2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83faa42c0a078c393f6b29d5db232d8be22776a891f8f56e5284faee4a20b327"
-dependencies = [
- "libc 0.2.171",
-]
 
 [[package]]
 name = "memmap2"
@@ -5915,17 +5928,6 @@ name = "never-say-never"
 version = "6.6.666"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf5a574dadd7941adeaa71823ecba5e28331b8313fb2e1c6a5c7e5981ea53ad6"
-
-[[package]]
-name = "nix"
-version = "0.24.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa52e972a9a719cecb6864fb88568781eb706bac2cd1d4f04a648542dbf78069"
-dependencies = [
- "bitflags 1.3.2",
- "cfg-if",
- "libc 0.2.171",
-]
 
 [[package]]
 name = "nix"
@@ -6970,7 +6972,7 @@ dependencies = [
 
 [[package]]
 name = "polyglote"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "derive_deref",
  "heck 0.5.0",
@@ -7030,9 +7032,9 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
 name = "pprof"
-version = "0.10.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6472bfed9475542ac46c518734a8d06d71b0f6cb2c17f904aa301711a57786f"
+checksum = "ef5c97c51bd34c7e742402e216abdeb44d415fbe6ae41d56b114723e953711cb"
 dependencies = [
  "backtrace",
  "cfg-if",
@@ -7040,12 +7042,13 @@ dependencies = [
  "inferno",
  "libc 0.2.171",
  "log",
- "nix 0.24.3",
+ "nix 0.26.4",
  "once_cell",
  "parking_lot 0.12.5",
- "prost 0.10.4",
+ "prost 0.12.6",
  "prost-build",
- "prost-derive 0.10.1",
+ "prost-derive 0.12.6",
+ "sha2",
  "smallvec",
  "symbolic-demangle",
  "tempfile",
@@ -7153,12 +7156,12 @@ checksum = "afbdc74edc00b6f6a218ca6a5364d6226a259d4b8ea1af4a0ea063f27e179f4d"
 
 [[package]]
 name = "prost"
-version = "0.10.4"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71adf41db68aa0daaefc69bb30bcd68ded9b9abaad5d1fbb6304c4fb390e083e"
+checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
 dependencies = [
  "bytes",
- "prost-derive 0.10.1",
+ "prost-derive 0.12.6",
 ]
 
 [[package]]
@@ -7173,37 +7176,36 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.10.4"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ae5a4388762d5815a9fc0dea33c56b021cdc8dde0c55e0c9ca57197254b0cab"
+checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "cfg-if",
- "cmake",
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.10.5",
- "lazy_static",
  "log",
  "multimap",
+ "once_cell",
  "petgraph 0.6.5",
- "prost 0.10.4",
- "prost-types 0.10.1",
+ "prettyplease",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
  "regex",
+ "syn 2.0.99",
  "tempfile",
- "which",
 ]
 
 [[package]]
 name = "prost-derive"
-version = "0.10.1"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b670f45da57fb8542ebdbb6105a925fe571b67f9e7ed9f47a06a84e72b4e7cc"
+checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
  "itertools 0.10.5",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.99",
 ]
 
 [[package]]
@@ -7221,12 +7223,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.10.1"
+version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d0a014229361011dc8e69c8a1ec6c2e8d0f2af7c91e3ea3f5b2170298461e68"
+checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
 dependencies = [
- "bytes",
- "prost 0.10.4",
+ "prost 0.12.6",
 ]
 
 [[package]]
@@ -9503,7 +9504,7 @@ dependencies = [
  "cursor-icon",
  "libc 0.2.171",
  "log",
- "memmap2 0.9.5",
+ "memmap2",
  "rustix 0.38.44",
  "thiserror 1.0.69",
  "wayland-backend",
@@ -9825,21 +9826,21 @@ dependencies = [
 
 [[package]]
 name = "symbolic-common"
-version = "9.2.1"
+version = "12.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "800963ba330b09a2ae4a4f7c6392b81fbc2784099a98c1eac68c3437aa9382b2"
+checksum = "52ca086c1eb5c7ee74b151ba83c6487d5d33f8c08ad991b86f3f58f6629e68d5"
 dependencies = [
  "debugid",
- "memmap2 0.5.10",
+ "memmap2",
  "stable_deref_trait",
  "uuid 1.16.0",
 ]
 
 [[package]]
 name = "symbolic-demangle"
-version = "9.2.1"
+version = "12.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b940a1fdbc72bb3369e38714efe6cd332dbbe46d093cf03d668b9ac390d1ad0"
+checksum = "baa911a28a62823aaf2cc2e074212492a3ee69d0d926cc8f5b12b4a108ff5c0c"
 dependencies = [
  "cpp_demangle",
  "rustc-demangle",
@@ -12108,7 +12109,7 @@ dependencies = [
  "dpi",
  "js-sys",
  "libc 0.2.171",
- "memmap2 0.9.5",
+ "memmap2",
  "ndk",
  "objc2 0.5.2",
  "objc2-app-kit",

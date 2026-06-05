@@ -1,18 +1,18 @@
 #![allow(unused)]
-use std::{
-    fmt::Display,
-    fs::File,
-    io::{BufWriter, Write},
-    path::PathBuf,
-};
+use std::fmt::Display;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 
-use crate::other_tools;
-use crate::postprocess::{CompressedBfPostProcess, PathJsonPostProcess};
-use hyper_diff::algorithms::{self, RuntimeMeasurement as _};
+use hyper_diff::algorithms;
+use hyper_diff::algorithms::RuntimeMeasurement as _;
 use hyperast::{types::WithStats, utils::memusage_linux};
 use hyperast_vcs_git::multi_preprocessed::PreProcessedRepositories;
 use hyperast_vcs_git::no_space::as_nospaces;
 use hyperast_vcs_git::processing::ConfiguredRepoHandle2;
+
+use crate::other_tools;
+use crate::postprocess::{CompressedBfPostProcess, PathJsonPostProcess};
 
 pub fn windowed_commits_compare(
     window_size: usize,
@@ -347,17 +347,13 @@ pub(crate) fn write_perfs<Id: Display>(
 
 #[cfg(test)]
 mod test {
-
     use super::*;
 
-    use hyper_diff::{
-        decompressed_tree_store::{CompletePostOrder, lazy_post_order::LazyPostOrder},
-        matchers::{
-            Decompressible,
-            heuristic::gt::greedy_subtree_matcher::{GreedySubtreeMatcher, SubtreeMatcher},
-            mapping_store::{DefaultMultiMappingStore, VecStore},
-        },
-    };
+    use hyper_diff::decompressed_tree_store::CompletePostOrder;
+    use hyper_diff::decompressed_tree_store::lazy_post_order::LazyPostOrder;
+    use hyper_diff::mappings::{DefaultMultiMappingStore, VecStore};
+    use hyper_diff::matchers::Decompressible;
+    use hyper_diff::matchers::heuristic::gt::greedy_subtree_matcher::GreedySubtreeMatcher;
     use hyperast::types::{HyperASTShared, WithChildren};
     use hyperast_vcs_git::preprocessed::child_by_name;
 
@@ -719,11 +715,8 @@ mod test {
         };
         dbg!();
         use hyper_diff::decompressed_tree_store::ShallowDecompressedTreeStore;
-        use hyper_diff::matchers::mapping_store::MappingStore;
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        use hyper_diff::mappings::MappingStore;
+        mapper.reserve_mappings();
         dbg!();
         let mm = LazyGreedySubtreeMatcher::<_>::compute_multi_mapping::<DefaultMultiMappingStore<_>>(
             &mut mapper,

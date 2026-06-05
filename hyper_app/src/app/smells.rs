@@ -43,10 +43,9 @@ use egui_addon::MultiSplitter;
 
 use super::code_tracking::FetchedFiles;
 use super::code_tracking::try_fetch_remote_file;
-use super::types;
-use super::types::CommitId;
-use super::types::{CodeRange, Commit, SelectedConfig};
+use super::types::{CodeRange, Commit, CommitId, SelectedConfig};
 use super::utils_edition::MakeHighlights;
+use crate::app::utils_egui::MyUiExt as _;
 use crate::utils_poll::{Remote, Resource};
 
 mod config_examples;
@@ -62,7 +61,7 @@ pub(super) struct ComputeConfigQuery {
     /// the query configuring the query simplification/generalization
     /// eg. `(predicate (identifier) (#EQ? "EQ") (parameters (string) @label )) @pred`
     meta_simp: String,
-    config: types::Config,
+    config: super::types::Config,
     len: usize,
     simple_matching: bool,
     prepro_matching: bool,
@@ -130,6 +129,7 @@ impl Default for ComputeConfigQuery {
             examples: vec![
                 config_examples::BASE_TRY_FAIL_CATCH_EX.clone(),
                 config_examples::MORE_TRY_FAIL_CATCH_EX.clone(),
+                config_examples::MORE_TRY_FAIL_CATCH_EX_LAST_CHILD.clone(),
                 config_examples::BALANCED_EX.clone(),
                 config_examples::BENCH_EX.clone(),
             ],
@@ -159,7 +159,7 @@ pub(crate) fn project_modal_handler(
     super::ProjectId::INVALID
 }
 
-pub(crate) fn commit_modal_handler(data: &mut super::AppData, cid: super::types::CommitId) {
+pub(crate) fn commit_modal_handler(data: &mut super::AppData, cid: CommitId) {
     data.smells.set_commit_id(cid);
     data.smells.diffs = None;
     data.smells.bads = None;
@@ -173,7 +173,7 @@ pub(crate) struct Config {
     pub(crate) commits: Option<ComputeConfigQuery>,
     pub(crate) diffs: Option<ExamplesValues>,
     pub(crate) queries: Option<SearchResults>,
-    pub(crate) stats: Option<Vec<(types::CodeRange, types::CodeRange)>>,
+    pub(crate) stats: Option<Vec<(CodeRange, CodeRange)>>,
     pub(crate) bad_matches_bounds: std::ops::RangeInclusive<usize>,
     pub(crate) bads: Option<Vec<usize>>,
     #[cfg(feature = "force_layout")]
@@ -490,6 +490,10 @@ pub(crate) fn show_config(
     let meta_simp = egui::TextEdit::multiline(&mut conf.meta_simp).hint_text(hint_text);
     egui::Window::new("Interactive Finder's Advanced Settings")
         .open(&mut conf.advanced_open)
+        .resizable(true)
+        .collapsible(false)
+        .max_height(ui.ctx().screen_rect().height())
+        .scroll(true)
         .show(ui.ctx(), |ui| {
             ui.label("Query Generation:");
             meta_gen.desired_rows(1).interactive(true).show(ui);
@@ -795,14 +799,13 @@ pub(super) fn show_central_panel(
                 let mut retry = false;
                 // This should only happen if the fetch API isn't available or something similar.
                 egui::Window::new("Diff Error").show(ui.ctx(), |ui| {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        if error.is_empty() { "Error" } else { error },
-                    );
+                    ui.probable_fetch_error(error);
                     if ui.button("retry").clicked() {
                         retry = true;
                     }
                 });
+
+                ui.probable_fetch_error(error);
                 if ui.button("retry").clicked() || retry {
                     *smells_diffs_result = None;
                 }
@@ -2219,7 +2222,7 @@ pub(crate) fn show_query(
     let mut font_id = egui::TextStyle::Heading.resolve(ui.style());
     font_id.size *= 1.5;
     let painter = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Middle,
+        egui::Order::Background,
         egui::Id::new("smells"),
     ));
     let pos = ui

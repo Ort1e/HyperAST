@@ -226,9 +226,12 @@ impl PartialEq for LatticeStats {
 
 impl Ord for LatticeStats {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.leaf_count
-            .cmp(&other.leaf_count)
-            .then(self.complete_tops.cmp(&other.complete_tops))
+        self.complete_tops
+            .cmp(&other.complete_tops)
+            .then(self.leaf_count.cmp(&other.leaf_count))
+            // self.leaf_count
+            //     .cmp(&other.leaf_count)
+            //     .then(self.complete_tops.cmp(&other.complete_tops))
             .then(self.node_count.cmp(&other.node_count))
             .then(self.edge_count.cmp(&other.edge_count))
     }

@@ -1,14 +1,12 @@
-use std::{
-    fmt::{Debug, Display},
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-};
+use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 
 #[cfg(feature = "native")]
 use string_interner::DefaultHashBuilder;
 use string_interner::Symbol;
 
-use crate::types::{AAAA, AnyType, Children, HyperType, NodeId, TypeTrait, TypedNodeId};
+use crate::types::{AnyType, Children, HyperType, NodeId, TypeTrait, TypedNodeId};
 
 use strum_macros::*;
 #[cfg(feature = "native")]
@@ -98,7 +96,6 @@ impl From<LabelIdentifier> for u32 {
 #[repr(transparent)]
 pub struct NodeIdentifier(std::num::NonZeroU32);
 
-impl AAAA for NodeIdentifier {}
 impl NodeId for NodeIdentifier {
     type IdN = Self;
     fn as_id(&self) -> &Self::IdN {
@@ -660,7 +657,7 @@ impl<S: Hash> Hash for Arch<S> {
 impl SimplePackedBuilder {
     pub fn add<'store, HAST: crate::types::HyperAST>(&mut self, store: &'store HAST, id: &HAST::IdN)
     where
-        for<'t> <HAST as crate::types::AstLending<'t>>::RT: crate::types::WithStats,
+        for<'t> crate::types::LendT<'t, HAST>: crate::types::WithStats,
         HAST::IdN: Into<NodeIdentifier> + Copy,
         HAST::IdN: NodeId<IdN = HAST::IdN>,
         HAST::Label: Into<LabelIdentifier> + Clone,

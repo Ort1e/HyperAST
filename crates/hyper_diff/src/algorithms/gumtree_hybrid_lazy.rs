@@ -1,18 +1,15 @@
-use super::DiffResult;
-use super::tr;
 use std::fmt::Debug;
 
-use super::CDS;
-use super::DiffRes;
+use hyperast::PrimInt;
+use hyperast::types::TypeStore;
+use hyperast::types::{HyperAST, LendT};
+use hyperast::types::{WithHashs, WithStats};
+
+use super::{CDS, DS, DiffRes, DiffResult, tr};
 use crate::actions::script_generator2::ScriptGenerator;
 use crate::decompressed_tree_store::bfs_wrapper::SimpleBfsMapper;
+use crate::mappings::{DefaultMultiMappingStore, MappingStore, VecStore};
 use crate::matchers::Mapper;
-use crate::matchers::mapping_store::{DefaultMultiMappingStore, MappingStore, VecStore};
-use hyperast::types::{self, HyperAST, NodeId};
-
-// use crate::decompressed_tree_store::lazy_post_order::LazyPostOrder;
-use super::DS;
-
 use crate::matchers::heuristic::gt::hybrid_bottom_up_matcher::HybridBottomUpMatcher;
 use crate::matchers::heuristic::gt::lazy_greedy_subtree_matcher::LazyGreedySubtreeMatcher;
 
@@ -31,12 +28,11 @@ pub fn diff_with_hyperparameters<
     dst: &HAST::IdN,
 ) -> DiffRes<HAST>
 where
+    HAST::Idx: PrimInt,
     HAST::IdN: Clone + Debug + Eq,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
     HAST::Label: Clone + Copy + Eq + Debug,
-    HAST::Idx: hyperast::PrimInt,
-    <HAST::TS as types::TypeStore>::Ty: Eq + Debug,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: types::WithHashs + types::WithStats,
+    <HAST::TS as TypeStore>::Ty: Eq + Debug,
+    for<'t> LendT<'t, HAST>: WithHashs + WithStats,
 {
     let measure = super::DefaultMetricSetup::prepare();
     let mut mapper_owned: (DS<HAST>, DS<HAST>) = hyperast.decompress_pair(src, dst).1;
@@ -51,10 +47,7 @@ where
 
     // Must fully decompress the subtrees to compute the non-lazy bottomup
     let mapper = Mapper::new(hyperast, mapper.mapping.mappings, mapper_owned);
-    let mapper = mapper.map(
-        |src_arena| CDS::<_>::from(src_arena.map(|x| x.complete(hyperast))),
-        |dst_arena| CDS::<_>::from(dst_arena.map(|x| x.complete(hyperast))),
-    );
+    let mapper = mapper.map(CDS::from, CDS::from);
     let measure = measure.start();
 
     let mapper = HybridBottomUpMatcher::<
@@ -70,17 +63,13 @@ where
 
     let measure = measure.stop_then_prepare();
 
-    let mapper = mapper.map(
-        |x| x,
-        // the dst side has to be traversed in bfs for chawathe
-        |dst_arena| SimpleBfsMapper::with_store(hyperast, dst_arena),
-    );
+    let mapper = mapper.map_dst(SimpleBfsMapper::make);
     let measure = measure.start();
 
     let actions = ScriptGenerator::compute_actions(mapper.hyperast, &mapper.mapping).ok();
 
     // drop the bfs wrapper
-    let mapper = mapper.map(|x| x, |dst_arena| dst_arena.back);
+    let mapper = mapper.map_dst(|dst_arena| dst_arena.back);
 
     let exec_data = measure.stop();
 

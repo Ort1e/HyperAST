@@ -5,10 +5,12 @@ use hyperast::PrimInt;
 use hyperast::position::PositionConverter;
 use hyperast::position::StructuralPosition;
 use hyperast::types::HyperAST;
-use hyperast::types::HyperASTShared;
 use hyperast::types::LendT;
 use hyperast::types::WithSerialization;
 use hyperast::types::WithStats;
+
+#[cfg(feature = "lattice")]
+use hyperast::types::HyperASTShared;
 
 use crate::code2query::QueryLattice;
 #[cfg(feature = "lattice")]
@@ -19,12 +21,14 @@ use mermaid::Mermaid;
 
 type IdNQ = hyperast::store::defaults::NodeIdentifier;
 
+#[cfg(feature = "lattice")]
 pub struct GroupedLatticesFmt<'a, 'b, HAST: HyperASTShared, Q, P> {
     pub(crate) lattice: &'a QueryLattice<P>,
     pub(crate) stores: &'a HAST,
     pub(crate) graphs: &'b GroupedLattices<Q>,
 }
 
+#[cfg(feature = "lattice")]
 pub fn markdown<'a, 'b, HAST: HyperASTShared, Q, P>(
     graphs: &'b GroupedLattices<Q>,
     lattice: &'a QueryLattice<P>,
@@ -43,12 +47,12 @@ details details {
 }
 </style>"###;
 
+#[cfg(feature = "lattice")]
 impl<HAST: HyperAST, Q, P> Display for GroupedLatticesFmt<'_, '_, HAST, Q, P>
 where
     HAST::IdN: std::fmt::Debug + Copy,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
     for<'t> LendT<'t, HAST>: WithSerialization + WithStats,
-    Q: Clone + Borrow<IdNQ> + PQ,
+    Q: Clone + std::borrow::Borrow<IdNQ> + PQ,
     P: hyperast::position::position_accessors::SolvedPosition<HAST::IdN> + Copy + Eq,
     for<'t> (&'t HAST, P): PPP,
 {
@@ -178,9 +182,10 @@ fn print_mermaid_graph<HAST: HyperAST, Q, P>(
     _lattice: &QueryLattice<P>,
     _stores: &HAST,
     graph: &petgraph::Graph<Q, enumset::EnumSet<crate::code2query::TrMarker>>,
+    stats: &crate::lattice_graph::LatticeStats,
 ) -> Result<(), std::fmt::Error>
 where
-    Q: Borrow<IdNQ> + PQ,
+    Q: std::borrow::Borrow<IdNQ> + PQ,
     for<'t> (&'t HAST, P): PPP,
 {
     if graph.edge_count() > EDGE_LIMIT {
@@ -192,6 +197,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "lattice")]
 fn print_patterns<HAST: HyperAST, Q, P>(
     f: &mut std::fmt::Formatter<'_>,
     lattice: &QueryLattice<P>,
@@ -201,7 +207,6 @@ fn print_patterns<HAST: HyperAST, Q, P>(
 ) -> Result<(), std::fmt::Error>
 where
     HAST::IdN: std::fmt::Debug + Copy,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
     for<'t> LendT<'t, HAST>: WithSerialization + WithStats,
     Q: Clone + std::borrow::Borrow<IdNQ> + PQ,
     P: hyperast::position::position_accessors::SolvedPosition<HAST::IdN> + Copy + Eq,
@@ -371,7 +376,6 @@ impl<HAST: HyperAST> PPP for (&HAST, hyperast::store::nodes::legion::NodeIdentif
 impl<HAST: HyperAST> PPP for (&HAST, &StructuralPosition<HAST::IdN, HAST::Idx>)
 where
     HAST::IdN: std::fmt::Debug + Copy,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
     for<'t> LendT<'t, HAST>: WithSerialization + WithStats,
 {
     fn pp(&self) -> impl Display {
@@ -403,7 +407,6 @@ pub(crate) fn pp_inits<HAST: HyperAST, P>(
 ) -> std::fmt::Result
 where
     HAST::IdN: std::fmt::Debug + Copy,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
     for<'t> LendT<'t, HAST>: WithSerialization + WithStats,
     P: hyperast::position::position_accessors::SolvedPosition<HAST::IdN> + Copy,
     for<'t> (&'t HAST, P): PPP,

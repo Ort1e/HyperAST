@@ -20,7 +20,6 @@ pub fn subprocess<HAST>(
 ) -> Option<PathBuf>
 where
     HAST: types::HyperAST + Copy,
-    HAST::IdN: types::NodeId<IdN = HAST::IdN>,
 {
     let res = subprocess_checked(
         stores,
@@ -51,7 +50,6 @@ pub fn subprocess_checked<HAST>(
 ) -> Result<PathBuf, String>
 where
     HAST: types::HyperAST + Copy,
-    HAST::IdN: types::NodeId<IdN = HAST::IdN>,
 {
     let (src, mut src_f) = tempfile().unwrap();
     dbg!(&src);

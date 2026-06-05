@@ -1,24 +1,31 @@
-use crate::decompressed_tree_store::{
-    ContiguousDescendants, DecompressedTreeStore, DecompressedWithParent,
-};
-use crate::matchers::mapping_store::{MonoMappingStore, MultiMappingStore};
-use crate::matchers::{Mapper, similarity_metrics};
-use crate::utils::sequence_algorithms::longest_common_subsequence;
-use hyperast::PrimInt;
-use hyperast::compat::HashMap;
-use hyperast::types::{
-    Childrn, HashKind, HyperAST, Labeled, LendT, NodeId, NodeStore, Tree, WithChildren, WithHashs,
-};
+//! Greedy subtree matcher
+//!
+//! introduced by:
+//! Jean-Rémy Falleri, Floréal Morandat, Xavier Blanc, Matias Martinez, Martin Monperrus
+//! in "Fine-grained and accurate source code differencing", 2014
 use num_traits::{ToPrimitive, one, zero};
 use std::hash::Hash;
+
+use hyperast::PrimInt;
+use hyperast::compat::HashMap;
+use hyperast::types::{HyperAST, NodeStore as _};
+use hyperast::types::{Labeled, LendT};
+use hyperast::types::{WithChildren, WithHashs};
+
+use crate::decompressed_tree_store::{ContiguousDescendants, ShallowDecompressedTreeStore};
+use crate::decompressed_tree_store::{DecompressedWithParent, FullyDecompressedTreeStore};
+use crate::mappings::{MonoMappingStore, MultiMappingStore};
+use crate::matchers::Mapper;
+use crate::similarity_metrics::SimilarityMeasure;
+use crate::utils::sequence_algorithms::longest_common_subsequence;
 
 pub struct GreedySubtreeMatcher<Mpr, const MIN_HEIGHT: usize = 1> {
     _phantom: std::marker::PhantomData<*const Mpr>,
 }
 
 impl<
-    Dsrc: DecompressedWithParent<HAST, M::Src> + ContiguousDescendants<HAST, M::Src>,
-    Ddst: DecompressedWithParent<HAST, M::Dst> + ContiguousDescendants<HAST, M::Dst>,
+    Dsrc: DecompressedWithParent<HAST, M::Src> + ContiguousDescendants<HAST, M::Src, IdD = M::Src>,
+    Ddst: DecompressedWithParent<HAST, M::Dst> + ContiguousDescendants<HAST, M::Dst, IdD = M::Dst>,
     HAST: HyperAST + Copy,
     M: MonoMappingStore,
     const MIN_HEIGHT: usize, // = 2
@@ -28,7 +35,6 @@ where
     M::Dst: PrimInt + Hash,
     for<'t> LendT<'t, HAST>: WithHashs,
     HAST::Label: Eq + Clone,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     pub fn match_it<MM>(
         mut mapper: crate::matchers::Mapper<HAST, Dsrc, Ddst, M>,
@@ -50,7 +56,10 @@ where
         let mut mm: MM = Default::default();
         mm.topit(mapper.src_arena.len(), mapper.dst_arena.len());
         SubtreeMatcher::<Mapper<HAST, Dsrc, Ddst, M>, MIN_HEIGHT>::matchh_to_be_filtered(
-            mapper, &mut mm,
+            mapper.hyperast,
+            &mut mapper.mapping.src_arena,
+            &mut mapper.mapping.dst_arena,
+            &mut mm,
         );
         Self::filter_mappings(mapper, &mm);
     }
@@ -59,11 +68,17 @@ where
         mapper: &mut Mapper<HAST, Dsrc, Ddst, M>,
         multi_mappings: &MM,
     ) {
-        // Select unique mappings first and extract ambiguous mappings.
+        let ambiguous_list = Self::handle_non_ambiguous_mappings(mapper, multi_mappings);
+        Self::handle_ambiguous_mappings(mapper, ambiguous_list);
+    }
+
+    /// Integrate unique mappings, while extracting the ambiguous ones.
+    fn handle_non_ambiguous_mappings<MM: MultiMappingStore<Src = M::Src, Dst = M::Dst>>(
+        mapper: &mut Mapper<HAST, Dsrc, Ddst, M>,
+        multi_mappings: &MM,
+    ) -> Vec<(M::Src, M::Dst)> {
         let mut ambiguous_list: Vec<(M::Src, M::Dst)> = vec![];
         let mut ignored = bitvec::bitbox![0;mapper.src_arena.len()];
-        let mut src_ignored = bitvec::bitbox![0;mapper.src_arena.len()];
-        let mut dst_ignored = bitvec::bitbox![0;mapper.dst_arena.len()];
         for src in multi_mappings.all_mapped_srcs() {
             let mut is_mapping_unique = false;
             if multi_mappings.is_src_unique(&src) {
@@ -76,7 +91,8 @@ where
 
             if !(ignored[src.index()] || is_mapping_unique) {
                 let adsts = multi_mappings.get_dsts(&src);
-                let asrcs = multi_mappings.get_srcs(&multi_mappings.get_dsts(&src)[0]);
+                let dst = multi_mappings.get_dsts(&src)[0];
+                let asrcs = multi_mappings.get_srcs(&dst);
                 for asrc in asrcs {
                     for adst in adsts {
                         ambiguous_list.push((*asrc, *adst));
@@ -85,37 +101,57 @@ where
                 asrcs.iter().for_each(|x| ignored.set(x.index(), true))
             }
         }
+        ambiguous_list
+    }
 
-        let mapping_list: Vec<_> = mapper.sort(ambiguous_list).collect();
+    // Integrate the best ambiguous mappings.
+    ///
+    /// Returns the rest.
+    fn handle_ambiguous_mappings(
+        mapper: &mut Mapper<HAST, Dsrc, Ddst, M>,
+        mut ambiguous_list: Vec<(M::Src, M::Dst)>,
+    ) -> Vec<(M::Src, M::Dst)> {
+        log::trace!("ambiguous_mappings.len: {}", &ambiguous_list.len());
+        ambiguous_list.sort_by(mapper.ambiguous_mappings_comparator());
+        ambiguous_list
+            .into_iter()
+            .filter_map(|(src, dst)| {
+                if !(mapper.mappings.is_src(&src) || mapper.mappings.is_dst(&dst)) {
+                    mapper.add_mapping_recursively(&src, &dst);
+                    None
+                } else {
+                    Some((src, dst))
+                }
+            })
+            .collect::<Vec<_>>()
 
-        // Select the best ambiguous mappings
-        for (src, dst) in mapping_list {
-            let src_i = src.index();
-            let dst_i = dst.index();
-            if !(src_ignored[src_i] || dst_ignored[dst_i]) {
-                mapper.add_mapping_recursively(&src, &dst);
-                src_ignored.set(src_i, true);
-                mapper
-                    .src_arena
-                    .descendants(&src)
-                    .iter()
-                    .for_each(|src| src_ignored.set(src.index(), true));
-                dst_ignored.set(dst_i, true);
-                mapper
-                    .dst_arena
-                    .descendants(&dst)
-                    .iter()
-                    .for_each(|dst| dst_ignored.set(dst.index(), true));
-            }
-        }
+        // // Select the best ambiguous mappings
+        // // let mut src_ignored = bitvec::bitbox![0;mapper.src_arena.len()];
+        // // let mut dst_ignored = bitvec::bitbox![0;mapper.dst_arena.len()];
+        // for (src, dst) in ambiguous_list {
+        //     // let src_i = src.index();
+        //     // let dst_i = dst.index();
+        //     // if !(src_ignored[src_i] || dst_ignored[dst_i]) {
+        //     if !(mapper.mappings.is_src(&src) || mapper.mappings.is_dst(&dst)) {
+        //         mapper.add_mapping_recursively(&src, &dst);
+        //         //     src_ignored.set(src_i, true);
+        //         //     (mapper.src_arena.descendants(&src))
+        //         //         .iter()
+        //         //         .for_each(|src| src_ignored.set(src.index(), true));
+        //         //     dst_ignored.set(dst_i, true);
+        //         //     (mapper.dst_arena.descendants(&dst))
+        //         //         .iter()
+        //         //         .for_each(|dst| dst_ignored.set(dst.index(), true));
+        //     }
+        // }
     }
 }
 
 impl<
-    Dsrc: DecompressedTreeStore<HAST, M::Src>
+    Dsrc: FullyDecompressedTreeStore<HAST, M::Src>
         + DecompressedWithParent<HAST, M::Src>
         + ContiguousDescendants<HAST, M::Src>,
-    Ddst: DecompressedTreeStore<HAST, M::Dst>
+    Ddst: FullyDecompressedTreeStore<HAST, M::Dst>
         + DecompressedWithParent<HAST, M::Dst>
         + ContiguousDescendants<HAST, M::Dst>,
     HAST: HyperAST + Copy,
@@ -126,59 +162,32 @@ where
     M::Dst: PrimInt + Hash,
     for<'t> LendT<'t, HAST>: WithHashs,
     HAST::Label: Eq + Clone,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
-    fn sort(
+    fn ambiguous_mappings_comparator(
         &mut self,
-        mut ambiguous_mappings: Vec<(M::Src, M::Dst)>,
-    ) -> impl Iterator<Item = (M::Src, M::Dst)> {
+    ) -> impl FnMut(&(M::Src, M::Dst), &(M::Src, M::Dst)) -> std::cmp::Ordering {
         let mut sib_sim = HashMap::<(M::Src, M::Dst), f64>::default();
-        let mut psib_sim = HashMap::<(M::Src, M::Dst), f64>::default();
-        let mut p_in_p_sim = HashMap::<(M::Src, M::Dst), f64>::default();
-        log::trace!("ambiguous_mappings.len: {}", &ambiguous_mappings.len());
-        ambiguous_mappings.sort_by(|a, b| {
-            let cached_coef_sib =
-                |l: &(M::Src, M::Dst)| *sib_sim.entry(*l).or_insert_with(|| self.coef_sib(l));
-            let cached_coef_parent =
-                |l: &(M::Src, M::Dst)| *psib_sim.entry(*l).or_insert_with(|| self.coef_parent(l));
-            let (alink, blink) = (a, b);
-            if self.same_parents(alink, blink) {
+        let mut psib_sim = sib_sim.clone();
+        let mut p_in_p_sim = sib_sim.clone();
+        move |a, b| {
+            let mut sib_sim = cached(&mut sib_sim, |l| self.coef_sib(l));
+            let mut psib_sim = cached(&mut psib_sim, |l| self.coef_parent(l));
+            let mut p_in_p_sim = cached(&mut p_in_p_sim, |l| self.coef_pos_in_parent(l));
+            if self.same_parents(a, b) {
                 std::cmp::Ordering::Equal
             } else {
-                self.cached_compare(cached_coef_sib, a, b)
+                sib_sim(a, b)
                     .reverse()
-                    .then_with(|| self.cached_compare(cached_coef_parent, a, b).reverse())
+                    .then_with(|| psib_sim(a, b).reverse())
             }
-            .then_with(|| {
-                self.cached_compare(
-                    |l: &(M::Src, M::Dst)| {
-                        *p_in_p_sim
-                            .entry(*l)
-                            .or_insert_with(|| self.coef_pos_in_parent(l))
-                    },
-                    a,
-                    b,
-                )
-            })
-            .then_with(|| self.compare_delta_pos(alink, blink))
-        });
-        ambiguous_mappings.into_iter()
-    }
-
-    fn cached_compare<I, F: FnMut(&I) -> O, O: PartialOrd>(
-        &self,
-        mut cached: F,
-        a: &I,
-        b: &I,
-    ) -> std::cmp::Ordering {
-        cached(a)
-            .partial_cmp(&cached(b))
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| p_in_p_sim(a, b))
+            .then_with(|| self.compare_delta_pos(a, b))
+        }
     }
 
     fn coef_sib(&self, l: &(M::Src, M::Dst)) -> f64 {
         let (p_src, p_dst) = self.parents(l);
-        similarity_metrics::SimilarityMeasure::range(
+        SimilarityMeasure::range(
             &self.src_arena.descendants_range(&p_src), //descendants
             &self.dst_arena.descendants_range(&p_dst),
             &self.mappings,
@@ -209,41 +218,15 @@ where
     }
 
     fn coef_pos_in_parent(&self, l: &(M::Src, M::Dst)) -> f64 {
-        let srcs = vec![l.0]
-            .into_iter()
-            .chain(self.src_arena.parents(l.0))
-            .filter_map(|x| {
-                self.src_arena.parent(&x).map(|p| {
-                    self.src_arena
-                        .position_in_parent::<usize>(&x)
-                        .unwrap()
-                        .to_f64()
-                        .unwrap()
-                        / self.src_arena.children(&p).len().to_f64().unwrap()
-                })
-            });
-        let dsts = vec![l.1]
-            .into_iter()
-            .chain(self.dst_arena.parents(l.1))
-            .filter_map(|x| {
-                self.dst_arena.parent(&x).map(|p| {
-                    self.dst_arena
-                        .position_in_parent::<usize>(&x)
-                        .unwrap()
-                        .to_f64()
-                        .unwrap()
-                        / self.dst_arena.children(&p).len().to_f64().unwrap()
-                })
-            });
-        srcs.zip(dsts)
-            .map(|(src, dst)| (src - dst) * (src - dst))
-            .sum::<f64>()
-            .sqrt()
+        let srcs = positions(&self.src_arena, l.0);
+        let dsts = positions(&self.dst_arena, l.1);
+        let squared_diff = |(src, dst)| (src - dst) * (src - dst);
+        srcs.zip(dsts).map(squared_diff).sum::<f64>().sqrt()
     }
 
-    fn same_parents(&self, alink: &(M::Src, M::Dst), blink: &(M::Src, M::Dst)) -> bool {
-        let ap = self.mapping_parents(alink);
-        let bp = self.mapping_parents(blink);
+    fn same_parents(&self, a: &(M::Src, M::Dst), b: &(M::Src, M::Dst)) -> bool {
+        let ap = self.mapping_parents(a);
+        let bp = self.mapping_parents(b);
         ap.0 == bp.0 && ap.1 == bp.1
     }
 
@@ -251,13 +234,23 @@ where
         (self.src_arena.parent(&l.0), self.dst_arena.parent(&l.1))
     }
 
-    fn compare_delta_pos(
-        &self,
-        alink: &(M::Src, M::Dst),
-        blink: &(M::Src, M::Dst),
-    ) -> std::cmp::Ordering {
-        (alink.0.index().abs_diff(alink.1.index())).cmp(&blink.0.index().abs_diff(blink.1.index()))
+    fn compare_delta_pos(&self, a: &(M::Src, M::Dst), b: &(M::Src, M::Dst)) -> std::cmp::Ordering {
+        (a.0.index().abs_diff(a.1.index())).cmp(&b.0.index().abs_diff(b.1.index()))
     }
+}
+
+fn positions<D, I, HAST: HyperAST + Copy>(arena: &D, x: I) -> impl Iterator<Item = f64>
+where
+    D: ShallowDecompressedTreeStore<HAST, I, IdD = I> + DecompressedWithParent<HAST, I>,
+    I: PrimInt,
+{
+    Some(x).into_iter().chain(arena.parents(x)).filter_map(|x| {
+        arena.parent(&x).map(|p| {
+            let pos = arena.position_in_parent::<usize>(&x).unwrap();
+            let len = arena.children(&p).len();
+            pos.to_f64().unwrap() / len.to_f64().unwrap()
+        })
+    })
 }
 
 pub struct SubtreeMatcher<Mpr, const MIN_HEIGHT: usize> {
@@ -265,8 +258,8 @@ pub struct SubtreeMatcher<Mpr, const MIN_HEIGHT: usize> {
 }
 
 impl<
-    Dsrc: DecompressedTreeStore<HAST, M::Src> + DecompressedWithParent<HAST, M::Src>,
-    Ddst: DecompressedTreeStore<HAST, M::Dst> + DecompressedWithParent<HAST, M::Dst>,
+    Dsrc: FullyDecompressedTreeStore<HAST, M::Src> + DecompressedWithParent<HAST, M::Src>,
+    Ddst: FullyDecompressedTreeStore<HAST, M::Dst> + DecompressedWithParent<HAST, M::Dst>,
     HAST,
     M: MonoMappingStore,
     const MIN_HEIGHT: usize,
@@ -277,7 +270,6 @@ where
     M::Dst: PrimInt,
     for<'t> LendT<'t, HAST>: WithHashs,
     HAST::Label: Eq,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     fn pop_larger<'b>(
         src_trees: &mut PriorityTreeList<'b, Dsrc, M::Src, HAST, MIN_HEIGHT>,
@@ -291,23 +283,16 @@ where
     }
 
     fn matchh_to_be_filtered<MM: MultiMappingStore<Src = M::Src, Dst = M::Dst>>(
-        mapper: &mut Mapper<HAST, Dsrc, Ddst, M>,
+        hyperast: HAST,
+        src_arena: &mut Dsrc,
+        dst_arena: &mut Ddst,
         multi_mappings: &mut MM,
     ) {
-        let mut src_trees = PriorityTreeList::<_, _, HAST, MIN_HEIGHT>::new(
-            mapper.hyperast,
-            &mapper.src_arena,
-            mapper.src_arena.root(),
-        );
-        let mut dst_trees = PriorityTreeList::<_, _, HAST, MIN_HEIGHT>::new(
-            mapper.hyperast,
-            &mapper.dst_arena,
-            mapper.dst_arena.root(),
-        );
-        // let mut aaa = 0;
+        let mut src_trees =
+            PriorityTreeList::<_, _, _, MIN_HEIGHT>::new(hyperast, src_arena, src_arena.root());
+        let mut dst_trees =
+            PriorityTreeList::<_, _, _, MIN_HEIGHT>::new(hyperast, dst_arena, dst_arena.root());
         while src_trees.peek_height() != -1 && dst_trees.peek_height() != -1 {
-            // aaa += 1;
-            // println!("multi_mappings={}", multi_mappings.len());
             while src_trees.peek_height() != dst_trees.peek_height() {
                 Self::pop_larger(&mut src_trees, &mut dst_trees);
                 // if src_trees.peek_height() == -1 || dst_trees.peek_height() == -1 {
@@ -320,41 +305,26 @@ where
 
             let mut marks_for_src_trees = bitvec::bitbox![0;current_height_src_trees.len()];
             let mut marks_for_dst_trees = bitvec::bitbox![0;current_height_dst_trees.len()];
-            // println!(
-            //     "{aaa} marks={},{}",
-            //     marks_for_src_trees.len(),
-            //     marks_for_dst_trees.len()
-            // );
 
             for (i, src) in current_height_src_trees.iter().enumerate() {
                 for (j, dst) in current_height_dst_trees.iter().enumerate() {
-                    if Self::isomorphic(mapper, src, dst) {
-                        // println!("isomorphic={},{}", i, j);
-                        // println!(
-                        //     "children={},{}",
-                        //     self.node_store
-                        //         .resolve(&self.src_arena.original(&src))
-                        //         .try_get_children()
-                        //         .map_or(0, |x| x.len()),
-                        //     self.node_store
-                        //         .resolve(&self.dst_arena.original(&dst))
-                        //         .try_get_children()
-                        //         .map_or(0, |x| x.len())
-                        // );
-                        // println!("id={:?},{:?}", src, dst);
+                    let iso = {
+                        let src = src_trees.arena.original(&src);
+                        let dst = dst_trees.arena.original(&dst);
+                        super::isomorphic::<_, true, false>(hyperast, &src, &dst)
+                    };
+                    if iso {
                         multi_mappings.link(*src, *dst);
                         marks_for_src_trees.set(i, true);
                         marks_for_dst_trees.set(j, true);
                     }
                 }
             }
-            // println!("multi_mappings'={}", multi_mappings.len());
             for i in 0..marks_for_src_trees.len() {
                 if !marks_for_src_trees[i] {
                     src_trees.open_tree(&current_height_src_trees[i]);
                 }
             }
-            // println!("multi_mappings''={}", multi_mappings.len());
             for j in 0..marks_for_dst_trees.len() {
                 if !marks_for_dst_trees[j] {
                     dst_trees.open_tree(&current_height_dst_trees[j]);
@@ -370,21 +340,21 @@ where
     fn similarity(mapper: &Mapper<HAST, Dsrc, Ddst, M>, src: &M::Src, dst: &M::Dst) -> f64 {
         let p_src = mapper.src_arena.parent(src).unwrap();
         let p_dst = mapper.dst_arena.parent(dst).unwrap();
-        let jaccard = similarity_metrics::jaccard_similarity(
+        let jaccard = SimilarityMeasure::new(
             &mapper.src_arena.descendants(&p_src),
             &mapper.dst_arena.descendants(&p_dst),
             &mapper.mappings,
-        );
-        let pos_src = if mapper.src_arena.has_parent(src) {
-            zero()
-        } else {
-            mapper.src_arena.position_in_parent::<usize>(src).unwrap()
-        };
-        let pos_dst = if mapper.dst_arena.has_parent(dst) {
-            zero()
-        } else {
-            mapper.dst_arena.position_in_parent(dst).unwrap()
-        };
+        )
+        .jaccard();
+
+        let pos_src = mapper
+            .src_arena
+            .position_in_parent::<usize>(src)
+            .unwrap_or(zero());
+        let pos_dst = mapper
+            .dst_arena
+            .position_in_parent::<usize>(dst)
+            .unwrap_or(zero());
 
         let max_src_pos = if mapper.src_arena.has_parent(src) {
             one()
@@ -417,79 +387,6 @@ where
     fn get_max_tree_size(mapper: &Mapper<HAST, Dsrc, Ddst, M>) -> usize {
         Ord::max(mapper.src_arena.len(), mapper.dst_arena.len())
     }
-
-    pub(crate) fn isomorphic(
-        mapper: &Mapper<HAST, Dsrc, Ddst, M>,
-        src: &M::Src,
-        dst: &M::Dst,
-    ) -> bool {
-        let src = mapper.src_arena.original(src);
-        let dst = mapper.dst_arena.original(dst);
-
-        Self::isomorphic_aux::<true>(mapper, &src, &dst)
-    }
-
-    /// if H then test the hash otherwise do not test it,
-    /// considering hash colisions testing it should only be useful once.
-    pub(crate) fn isomorphic_aux<const H: bool>(
-        mapper: &Mapper<HAST, Dsrc, Ddst, M>,
-        src: &HAST::IdN,
-        dst: &HAST::IdN,
-    ) -> bool {
-        if src == dst {
-            return true;
-        }
-        let _src = mapper.hyperast.node_store().resolve(src);
-        let src_h = if H {
-            Some(WithHashs::hash(&_src, &HashKind::label()))
-        } else {
-            None
-        };
-        // let src_t = src.get_type();
-        let src_t = mapper.hyperast.resolve_type(src);
-        let src_l = if _src.has_label() {
-            Some(_src.get_label_unchecked())
-        } else {
-            None
-        };
-        let src_c: Option<Vec<_>> = _src.children().map(|x| x.iter_children().collect());
-
-        let _dst = mapper.hyperast.node_store().resolve(dst);
-
-        if let Some(src_h) = src_h {
-            let dst_h = WithHashs::hash(&_dst, &HashKind::label());
-            if src_h != dst_h {
-                return false;
-            }
-        }
-        // let dst_t = dst.get_type();
-        let dst_t = mapper.hyperast.resolve_type(dst);
-        if src_t != dst_t {
-            return false;
-        }
-        if _dst.has_label() && (src_l.is_none() || src_l.unwrap() != _dst.get_label_unchecked()) {
-            return false;
-        };
-
-        let dst_c: Option<Vec<_>> = _dst.children().map(|x| x.iter_children().collect());
-
-        match (src_c, dst_c) {
-            (None, None) => true,
-            (Some(src_c), Some(dst_c)) => {
-                if src_c.len() != dst_c.len() {
-                    false
-                } else {
-                    for (src, dst) in src_c.iter().zip(dst_c.iter()) {
-                        if !Self::isomorphic_aux::<false>(mapper, src, dst) {
-                            return false;
-                        }
-                    }
-                    true
-                }
-            }
-            _ => false,
-        }
-    }
 }
 
 /// NOTE: use [`super::lazy_greedy_subtree_matcher::PriorityTreeList`] if WithStats is available
@@ -506,13 +403,11 @@ struct PriorityTreeList<'b, D, IdD, HAST, const MIN_HEIGHT: usize> {
 
 impl<
     'a,
-    D: DecompressedTreeStore<HAST, IdD>,
+    D: FullyDecompressedTreeStore<HAST, IdD>,
     IdD: PrimInt,
     HAST: HyperAST + Copy,
     const MIN_HEIGHT: usize,
 > PriorityTreeList<'a, D, IdD, HAST, MIN_HEIGHT>
-where
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     pub(super) fn new(
         store: HAST,
@@ -602,4 +497,28 @@ where
             }
         }
     }
+}
+
+pub(super) fn cached<K: Copy + Eq + Hash, T: Copy + PartialOrd>(
+    c: &mut HashMap<K, T>,
+    f: impl Copy + Fn(&K) -> T,
+) -> impl FnMut(&K, &K) -> std::cmp::Ordering {
+    move |a, b| cached_compare(_cached(c, f), a, b)
+}
+
+pub(super) fn _cached<K: Copy + Eq + Hash, T: Copy>(
+    c: &mut HashMap<K, T>,
+    f: impl Fn(&K) -> T,
+) -> impl FnMut(&K) -> T {
+    move |l: &K| *c.entry(*l).or_insert_with(|| f(l))
+}
+
+pub(super) fn cached_compare<I, O: PartialOrd>(
+    mut cached: impl FnMut(&I) -> O,
+    a: &I,
+    b: &I,
+) -> std::cmp::Ordering {
+    cached(a)
+        .partial_cmp(&cached(b))
+        .unwrap_or(std::cmp::Ordering::Equal)
 }

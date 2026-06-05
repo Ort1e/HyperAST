@@ -1,11 +1,8 @@
 use std::fmt::Display;
 
-use hyperast::store::defaults::NodeIdentifier;
 use hyperast::tree_gen::{TsEnableTS, TsType};
-use hyperast::types::{
-    AAAA, AnyType, HyperType, LangRef, NodeId, RoleStore, TypeStore, TypeTrait, TypeU16,
-    TypedNodeId,
-};
+use hyperast::types::{AnyType, HyperType, LangRef, TypeStore, TypeTrait, TypeU16, TypedNodeId};
+use hyperast::types::{NodeId, UniformNodeId};
 
 impl hyperast::types::ETypeStore for TStore {
     type Ty2 = Type;
@@ -52,8 +49,10 @@ impl TypeStore for TStore {
 #[cfg(feature = "legion")]
 mod legion_impls {
     use super::*;
-
-    use hyperast::{store::nodes::legion::HashedNodeRef, types::LangWrapper};
+    use hyperast::store::defaults::NodeIdentifier;
+    use hyperast::store::nodes::legion::HashedNodeRef;
+    use hyperast::types::LangWrapper;
+    use hyperast::types::RoleStore;
 
     impl RoleStore for TStore {
         type IdF = u16;
@@ -77,16 +76,6 @@ mod legion_impls {
         }
     }
 
-    // impl<'a> TsQueryEnabledTypeStore<HashedNodeRef<'a, TIdN<NodeIdentifier>>> for TStore {
-    //     fn intern(t: Type) -> Self::Ty {
-    //         t.into()
-    //     }
-
-    //     fn resolve(t: Self::Ty) -> Type {
-    //         t.e()
-    //     }
-    // }
-
     impl TsQueryEnabledTypeStore<HashedNodeRef<'_, NodeIdentifier>> for TStore {
         fn resolve(t: Self::Ty) -> Type {
             t.e()
@@ -99,7 +88,7 @@ fn id_for_node_kind(kind: &str, named: bool) -> u16 {
     tree_sitter_query::language().id_for_node_kind(kind, named)
 }
 #[cfg(not(feature = "impl"))]
-fn id_for_node_kind(kind: &str, named: bool) -> u16 {
+fn id_for_node_kind(_kind: &str, _named: bool) -> u16 {
     unimplemented!("need treesitter grammar")
 }
 
@@ -119,7 +108,7 @@ impl Type {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TIdN<IdN>(IdN);
 
-impl<IdN: Clone + Eq + AAAA> NodeId for TIdN<IdN> {
+impl<IdN: Clone + Eq + UniformNodeId> NodeId for TIdN<IdN> {
     type IdN = IdN;
 
     fn as_id(&self) -> &Self::IdN {
@@ -135,7 +124,7 @@ impl<IdN: Clone + Eq + AAAA> NodeId for TIdN<IdN> {
     }
 }
 
-impl<IdN: Clone + Eq + AAAA> TypedNodeId for TIdN<IdN> {
+impl<IdN: Clone + Eq + UniformNodeId> TypedNodeId for TIdN<IdN> {
     type Ty = Type;
     type TyErazed = TType;
     fn unerase(ty: Self::TyErazed) -> Self::Ty {

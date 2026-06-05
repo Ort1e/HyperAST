@@ -9,8 +9,9 @@ use hyperast::{PrimInt, types};
 use hyper_diff::decompressed_tree_store::DecompressedWithParent as _;
 use hyper_diff::decompressed_tree_store::LazyDecompressedTreeStore as _;
 use hyper_diff::decompressed_tree_store::{Shallow, lazy_post_order::LazyPostOrder};
-use hyper_diff::matchers::mapping_store::{MappingStore, MonoMappingStore, MultiMappingStore};
-use hyper_diff::matchers::{Decompressible, Mapper, mapping_store};
+use hyper_diff::mappings;
+use hyper_diff::mappings::{MappingStore, MonoMappingStore, MultiMappingStore};
+use hyper_diff::matchers::{Decompressible, Mapper};
 
 use hyperast::position::position_accessors;
 use hyperast::position::{compute_position, compute_position_and_nodes, path_with_spaces};
@@ -41,7 +42,7 @@ impl<'store, HAST> MappingTracker<'store, HAST> {
     fn size(&self, other_tr: &HAST::IdN, current_tr: &HAST::IdN) -> usize
     where
         HAST: HyperAST,
-        for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: types::WithStats,
+        for<'t> hyperast::types::LendT<'t, HAST>: types::WithStats,
     {
         let node_store = self.stores.node_store();
         let src_size: usize = node_store.resolve(other_tr).size();
@@ -97,7 +98,7 @@ where
     let mut locked = binding.lock();
     let tree_pair = locked.as_mut(stores);
 
-    let mappings = mapping_store::VecStore::default();
+    let mappings = mappings::VecStore::default();
     let mut mapper = Mapper::prep(stores, mappings, tree_pair);
     let fuller_mappings = if flags.some() {
         // case where we want to track through multiple commits
@@ -124,7 +125,7 @@ where
                 // It happens when going through the greedy tracking
                 // maybe an issue with DashMaps ?
                 use crate::changes::continue_compute_mappings_full;
-                use mapping_store::DefaultMultiMappingStore as MM;
+                use mappings::DefaultMultiMappingStore as MM;
                 continue_compute_mappings_full::<_, _, MM<_>>(
                     mappings_alone,
                     &mut mapper,
@@ -136,7 +137,7 @@ where
         }
         // let mut mapper = mapper.mirror();
         use crate::changes::continue_compute_mappings_full;
-        use mapping_store::DefaultMultiMappingStore as MM;
+        use mappings::DefaultMultiMappingStore as MM;
         continue_compute_mappings_full::<_, _, MM<_>>(
             mappings_alone,
             &mut mapper,
@@ -144,7 +145,7 @@ where
         )
     } else {
         use crate::changes::continue_compute_mappings_full;
-        use mapping_store::DefaultMultiMappingStore as MM;
+        use mappings::DefaultMultiMappingStore as MM;
         continue_compute_mappings_full::<_, _, MM<_>>(mappings_alone, &mut mapper, None)
     };
     let fuller_mappings = &fuller_mappings.1;
@@ -263,7 +264,7 @@ where
 
     let (pos, _) = compute_position(other_tr, &mut path.iter().copied(), with_spaces_stores);
     let fallback = LocalPieceOfCode::from_position(&pos, path, path_ids);
-    
+
     postprocess_matching(fallback)
 }
 
@@ -278,7 +279,7 @@ where
     P: position_accessors::SolvedPosition<IdN>
         + position_accessors::RootedPosition<IdN>
         + position_accessors::WithPreOrderOffsets<Idx = super::Idx>,
-    M::Src: PrimInt,
+    M::Src: PrimInt + Shallow<M::Src>,
     M::Dst: PrimInt + Shallow<M::Dst>,
 {
     let mapped_node = mapper.dst_arena.original(&mapped);
@@ -366,7 +367,7 @@ fn trig_parent<M: MappingStore>(
     mapped: M::Dst,
 ) -> bool
 where
-    M::Src: PrimInt,
+    M::Src: PrimInt + Shallow<M::Src>,
     M::Dst: PrimInt + Shallow<M::Dst>,
 {
     let target_parent = mapper.src_arena.parent(&mapping_target);
@@ -418,7 +419,7 @@ type MapperNos<'store, 'a, M, Src, Dst> = Mapper<
 fn track_greedy<'s, C, P, M>(
     with_spaces_stores: &'s SimpleStores<TStore>,
     mapper: &mut MapperNos<'s, '_, M, IdD, IdD>,
-    subtree_mappings: &mapping_store::MultiVecStore<IdD>,
+    subtree_mappings: &mappings::MultiVecStore<IdD>,
     flags: &Flags,
     target: &P,
     postprocess_matching: &impl Fn(LocalPieceOfCode<IdN, super::Idx>) -> C,

@@ -1,11 +1,12 @@
-use crate::decompressed_tree_store::{Shallow, ShallowDecompressedTreeStore};
-use crate::matchers::optimal::zs::str_distance_patched::QGram;
+use str_distance::DistanceMetric;
+
 use hyperast::nodes::TextSerializer;
 use hyperast::store::nodes::compo;
-use hyperast::types::{self, LendT};
-use str_distance::DistanceMetric;
-use types::{HyperAST, NodeId, WithMetaData};
-use types::{HyperType as _, LabelStore as _, NodeStore as _};
+use hyperast::types::{HyperAST, LendT, WithChildren, WithMetaData};
+use hyperast::types::{HyperType as _, LabelStore as _, Labeled as _, NodeStore as _};
+
+use crate::decompressed_tree_store::ShallowDecompressedTreeStore;
+use crate::matchers::optimal::zs::str_distance_patched::QGram;
 
 // pub(self) use super::factorized_bounds;
 
@@ -27,7 +28,6 @@ where
     HAST: HyperAST + Clone,
     HAST::Label: Eq + Copy,
     HAST::IdN: Copy,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     type IdN = HAST::IdN;
     fn norm(hyperast: &HAST, p: &[Self::IdN; 2]) -> f64 {
@@ -64,7 +64,6 @@ where
     HAST: HyperAST + Clone,
     HAST::Label: Clone,
 {
-    use types::Labeled;
     let n = hyperast.node_store().resolve(&x);
     n.try_get_label().cloned()
 }
@@ -72,9 +71,7 @@ where
 fn retrieve_text<HAST>(hyperast: &HAST, x: HAST::IdN) -> std::borrow::Cow<'_, str>
 where
     HAST: HyperAST + Clone,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
-    use types::Labeled;
     let n = hyperast.node_store().resolve(&x);
     let l = n.try_get_label();
     if let Some(l) = l {
@@ -91,7 +88,6 @@ where
     HAST: HyperAST + Clone,
     HAST::Label: Eq + Copy,
     HAST::IdN: Copy,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     type IdN = HAST::IdN;
 
@@ -132,20 +128,20 @@ where
     }
 }
 
-pub fn is_leaf_file<HAST, D, IdS, IdD>(stores: HAST, arena: &D, idd: IdD) -> bool
+pub fn is_leaf_file<HAST, D, IdS>(stores: HAST, arena: &D, idd: D::IdD) -> bool
 where
     HAST: HyperAST + Copy,
-    D: ShallowDecompressedTreeStore<HAST, IdD, IdS>,
+    D: ShallowDecompressedTreeStore<HAST, IdS>,
 {
     let id = arena.original(&idd);
     let t = stores.resolve_type(&id);
     t.is_file()
 }
 
-pub fn is_leaf_sub_file<HAST, D, IdS, IdD>(stores: HAST, arena: &D, idd: IdD) -> bool
+pub fn is_leaf_sub_file<HAST, D, IdS>(stores: HAST, arena: &D, idd: D::IdD) -> bool
 where
     HAST: HyperAST + Copy,
-    D: ShallowDecompressedTreeStore<HAST, IdD, IdS>,
+    D: ShallowDecompressedTreeStore<HAST, IdS>,
     for<'t> LendT<'t, HAST>: WithMetaData<compo::MemberImportCount>,
 {
     let id = arena.original(&idd);
@@ -153,25 +149,23 @@ where
     n.get_metadata().is_some_and(|x| x.0 == 1)
 }
 
-pub fn is_leaf_stmt<HAST, D, IdS, IdD>(stores: HAST, arena: &D, idd: IdD) -> bool
+pub fn is_leaf_stmt<HAST, D, IdS>(stores: HAST, arena: &D, idd: D::IdD) -> bool
 where
     HAST: HyperAST + Copy,
     for<'t> LendT<'t, HAST>: WithMetaData<compo::StmtCount>,
-    D: ShallowDecompressedTreeStore<HAST, IdD, IdS>,
+    D: ShallowDecompressedTreeStore<HAST, IdS>,
 {
     let id = arena.original(&idd);
     let n = stores.node_store().resolve(&id);
     n.get_metadata().is_some_and(|x| x.0 == 1)
 }
 
-pub fn is_leaf<HAST, D, IdD, IdS>(stores: HAST, arena: &D, idd: IdD) -> bool
+pub fn is_leaf<HAST, D, IdS>(stores: HAST, arena: &D, idd: D::IdD) -> bool
 where
     HAST: HyperAST + Copy,
     IdS: Eq,
-    IdD: Shallow<IdS>,
-    D: ShallowDecompressedTreeStore<HAST, IdD, IdS>,
+    D: ShallowDecompressedTreeStore<HAST, IdS>,
 {
-    use types::WithChildren;
     let o = arena.original(&idd);
     stores.node_store().resolve(&o).child_count() == num_traits::zero()
 }

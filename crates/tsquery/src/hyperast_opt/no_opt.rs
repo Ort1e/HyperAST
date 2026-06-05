@@ -62,9 +62,8 @@ impl<'hast, HAST: HyperAST> CNLending<'_> for self::TreeCursor<'hast, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithPrecompQueries,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithPrecompQueries,
 {
     type NR = self::Node<'hast, HAST>;
 }
@@ -73,9 +72,8 @@ impl<'hast, HAST: HyperAST> StatusLending<'_> for self::TreeCursor<'hast, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithPrecompQueries,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithPrecompQueries,
 {
     type Status = CursorStatus<<<HAST as HyperAST>::TS as RoleStore>::IdF>;
 }
@@ -84,9 +82,8 @@ impl<'hast, HAST: HyperAST> crate::Cursor for self::TreeCursor<'hast, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithPrecompQueries,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithPrecompQueries,
 {
     type Node = self::Node<'hast, HAST>;
     // type NodeRef<'a>
@@ -207,8 +204,7 @@ impl<'hast, HAST: HyperAST> Node<'hast, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
 {
     fn _goto_first_child_internal(&mut self) -> TreeCursorStep {
         use hyperast::types::NodeStore;
@@ -264,8 +260,7 @@ impl<HAST: HyperAST> self::TreeCursor<'_, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
 {
     fn role(&self) -> Option<<HAST::TS as RoleStore>::Role> {
         use hyperast::types::NodeStore;
@@ -332,8 +327,7 @@ impl<HAST: HyperAST> crate::Node for self::Node<'_, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
 {
     fn symbol(&self) -> Symbol {
         super::symbol(self.stores, *self.pos.node().unwrap())
@@ -406,8 +400,7 @@ impl<HAST: HyperAST> Node<'_, HAST>
 where
     HAST::IdN: std::fmt::Debug + Copy,
     HAST::TS: RoleStore,
-    for<'t> <HAST as hyperast::types::AstLending<'t>>::RT: WithRoles,
-    HAST::IdN: hyperast::types::NodeId<IdN = HAST::IdN>,
+    for<'t> hyperast::types::LendT<'t, HAST>: WithRoles,
 {
     fn child_by_role(&mut self, role: <HAST::TS as RoleStore>::Role) -> Option<()> {
         // TODO what about multiple children with same role?

@@ -1,13 +1,21 @@
 #![allow(unexpected_cfgs)]
-use super::{Similarity, TextSimilarity, is_leaf, is_leaf_file, is_leaf_stmt, is_leaf_sub_file};
-use crate::decompressed_tree_store::{ContiguousDescendants, LazyDecompressedTreeStore, Shallow};
-use crate::matchers::Mapper;
-use crate::matchers::mapping_store::MonoMappingStore;
-use hyperast::PrimInt;
-use hyperast::store::nodes::compo;
-use hyperast::types::{HashKind, HyperAST, LendT, NodeId, NodeStore, WithHashs, WithMetaData};
 use num_traits::one;
 use std::fmt::Debug;
+
+use hyperast::PrimInt;
+use hyperast::store::nodes::compo;
+
+use hyperast::types::NodeStore as _;
+use hyperast::types::{HashKind, HyperAST, LendT};
+use hyperast::types::{WithHashs, WithMetaData};
+
+use super::{Similarity, TextSimilarity};
+use super::{is_leaf, is_leaf_file, is_leaf_stmt, is_leaf_sub_file};
+use crate::decompressed_tree_store::ContiguousDescendants;
+use crate::decompressed_tree_store::LazyDecompressedTreeStore;
+use crate::decompressed_tree_store::Shallow;
+use crate::mappings::MonoMappingStore;
+use crate::matchers::Mapper;
 
 pub struct LazyLeavesMatcher<
     Mpr,
@@ -19,8 +27,8 @@ pub struct LazyLeavesMatcher<
 }
 
 impl<
-    Dsrc: ContiguousDescendants<HAST, Dsrc::IdD, M::Src> + LazyDecompressedTreeStore<HAST, M::Src>,
-    Ddst: ContiguousDescendants<HAST, Ddst::IdD, M::Dst> + LazyDecompressedTreeStore<HAST, M::Dst>,
+    Dsrc: ContiguousDescendants<HAST, M::Src> + LazyDecompressedTreeStore<HAST, M::Src>,
+    Ddst: ContiguousDescendants<HAST, M::Dst> + LazyDecompressedTreeStore<HAST, M::Dst>,
     HAST: HyperAST + Copy,
     M: MonoMappingStore + Debug,
     S: Similarity<HAST, IdN = HAST::IdN>,
@@ -34,7 +42,6 @@ where
     Dsrc::IdD: Eq + Debug + Copy + PrimInt,
     HAST::Label: Eq,
     HAST::IdN: Debug,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
     for<'t> LendT<'t, HAST>: WithHashs,
 {
     pub fn match_it(
@@ -44,10 +51,7 @@ where
         for<'t> LendT<'t, HAST>:
             WithMetaData<compo::StmtCount> + WithMetaData<compo::MemberImportCount>,
     {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute_variants(&mut mapper);
         mapper
     }
@@ -69,20 +73,14 @@ where
     where
         for<'t> LendT<'t, HAST>: WithMetaData<compo::StmtCount>,
     {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute(&mut mapper, is_leaf_stmt, is_leaf_stmt);
         mapper
     }
     pub fn match_all(
         mut mapper: crate::matchers::Mapper<HAST, Dsrc, Ddst, M>,
     ) -> crate::matchers::Mapper<HAST, Dsrc, Ddst, M> {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
 
         Self::execute(&mut mapper, is_leaf, is_leaf);
         mapper
@@ -90,10 +88,7 @@ where
     pub fn match_files(
         mut mapper: crate::matchers::Mapper<HAST, Dsrc, Ddst, M>,
     ) -> crate::matchers::Mapper<HAST, Dsrc, Ddst, M> {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute(&mut mapper, is_leaf_file, is_leaf_file);
         mapper
     }
@@ -103,10 +98,7 @@ where
     where
         for<'t> LendT<'t, HAST>: WithMetaData<compo::MemberImportCount>,
     {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute(&mut mapper, is_leaf_sub_file, is_leaf_sub_file);
         mapper
     }
@@ -276,7 +268,8 @@ where
 mod tests {
     use super::*;
     use crate::decompressed_tree_store::lazy_post_order::LazyPostOrder;
-    use crate::matchers::{Decompressible, mapping_store::MappingStore};
+    use crate::mappings::MappingStore;
+    use crate::matchers::Decompressible;
     use crate::tests::examples::example_change_distiller;
     use hyperast::test_utils::simple_tree::vpair_to_stores;
     use hyperast::types::{DecompressedFrom, HyperASTShared};
@@ -305,7 +298,7 @@ mod tests {
             mapping: crate::matchers::Mapping {
                 src_arena: src_arena.as_mut(),
                 dst_arena: dst_arena.as_mut(),
-                mappings: crate::matchers::mapping_store::VecStore::default(),
+                mappings: crate::mappings::VecStore::default(),
             },
         };
         let mapping = LazyLeavesMatcher::<_, TextSimilarity>::match_all(mapping);
@@ -398,7 +391,7 @@ mod tests {
             mapping: crate::matchers::Mapping {
                 src_arena: src_arena.as_mut(),
                 dst_arena: dst_arena.as_mut(),
-                mappings: crate::matchers::mapping_store::VecStore::default(),
+                mappings: crate::mappings::VecStore::default(),
             },
         };
         let mapping = LazyLeavesMatcher::<_, TextSimilarity>::match_stmt(mapping);

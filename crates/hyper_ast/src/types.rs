@@ -808,15 +808,17 @@ pub trait NodeStoreLife<'store, IdN> {
     fn resolve(&'store self, id: &IdN) -> Self::R<'store>;
 }
 
-pub trait NodeId: Eq + Clone + 'static {
-    type IdN: Eq + AAAA;
+pub trait NodeId: Debug + Eq + Clone + 'static {
+    type IdN: Eq + UniformNodeId;
     fn as_id(&self) -> &Self::IdN;
     // fn as_ty(&self) -> &Self::Ty;
     unsafe fn from_id(id: Self::IdN) -> Self;
     unsafe fn from_ref_id(id: &Self::IdN) -> &Self;
 }
 
-impl AAAA for u16 {}
+pub trait UniformNodeId: NodeId<IdN = Self> {}
+
+impl<T: NodeId<IdN = T>> UniformNodeId for T {}
 
 impl NodeId for u16 {
     type IdN = u16;
@@ -831,8 +833,6 @@ impl NodeId for u16 {
         id
     }
 }
-
-pub trait AAAA: NodeId<IdN = Self> {}
 
 pub trait TypedNodeId: NodeId {
     type Ty: HyperType + Hash + Copy + Eq + Send + Sync;
@@ -1279,7 +1279,7 @@ pub trait NStoreRefAssoc {
 pub trait NodeStorage<IdN> {}
 
 pub trait HyperASTShared {
-    type IdN: NodeId;
+    type IdN: UniformNodeId;
     type Idx: PrimInt;
     type Label;
 }

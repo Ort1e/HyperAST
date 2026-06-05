@@ -8,10 +8,11 @@ use crate::actions::Actions;
 use crate::actions::action_vec::{ActionsVec, TestActions};
 use crate::actions::action_vec::{apply_action, apply_actions};
 use crate::actions::script_generator2::{Act, ApplicablePath, ScriptGenerator, SimpleAction};
+use crate::decompressed_tree_store::CompletePostOrder;
+use crate::decompressed_tree_store::ShallowDecompressedTreeStore;
 use crate::decompressed_tree_store::bfs_wrapper::SimpleBfsMapper;
-use crate::decompressed_tree_store::{CompletePostOrder, ShallowDecompressedTreeStore};
+use crate::mappings::{DefaultMappingStore, MappingStore};
 use crate::matchers::Decompressible;
-use crate::matchers::mapping_store::{DefaultMappingStore, MappingStore};
 use crate::tests::examples::{example_action, example_action2, example_gt_java_code};
 use crate::tree::simple_tree::{DisplayTree, NS, Tree, vpair_to_stores};
 use crate::tree::tree_path::{CompressedTreePath, TreePath};
@@ -97,7 +98,7 @@ fn test_with_action_example() {
                 write!(f, "")
             })
         );
-        let dst_arena2: Mpr<_> = SimpleBfsMapper::with_store(&stores, &dst_arena);
+        let dst_arena2: Mpr<_> = SimpleBfsMapper::make(&dst_arena);
         // let dst_arena2 = Decompressible {
         //     hyperast: &stores,
         //     decomp: dst_arena2,
@@ -507,7 +508,7 @@ fn test_with_action_example2() {
             })
         );
 
-        let dst_arena2: Mpr<_> = SimpleBfsMapper::with_store(&stores, &dst_arena);
+        let dst_arena2: Mpr<_> = SimpleBfsMapper::make(&dst_arena);
         let actions =
             ScriptGenerator::_compute_actions(&stores, &src_arena, &dst_arena2, &ms).unwrap();
 
@@ -750,7 +751,7 @@ fn test_with_zs_custom_example() {
         // ms.addMapping(src.getChild("1.3"), dst.getChild("0.1.3"));
         ms.link(from_src(&[1, 3]), from_dst(&[0, 1, 3]));
 
-        let dst_arena2: Mpr<_> = SimpleBfsMapper::with_store(&stores, &dst_arena);
+        let dst_arena2: Mpr<_> = SimpleBfsMapper::make(&dst_arena);
         let actions =
             ScriptGenerator::_compute_actions(&stores, &src_arena, &dst_arena2, &ms).unwrap();
 

@@ -1,13 +1,16 @@
-use crate::decompressed_tree_store::{ContiguousDescendants, LazyDecompressedTreeStore, Shallow};
-use crate::matchers::Mapper;
-use crate::matchers::heuristic::factorized_bounds::LazyDecompTreeBounds;
-use crate::matchers::mapping_store::MonoMappingStore;
-use crate::matchers::similarity_metrics;
-use hyperast::PrimInt;
-use hyperast::store::nodes::compo;
-use hyperast::types::{HyperAST, LendT, NodeId, Tree, WithHashs, WithMetaData, WithStats};
 use num_traits::ToPrimitive as _;
 use std::fmt::Debug;
+
+use hyperast::PrimInt;
+use hyperast::store::nodes::compo;
+use hyperast::types::{HyperAST, LendT, Tree};
+use hyperast::types::{WithHashs, WithMetaData, WithStats};
+
+use crate::decompressed_tree_store::{ContiguousDescendants, LazyDecompressedTreeStore, Shallow};
+use crate::mappings::MonoMappingStore;
+use crate::matchers::Mapper;
+use crate::matchers::heuristic::factorized_bounds::LazyDecompTreeBounds;
+use crate::similarity_metrics;
 
 use super::leaf_count;
 
@@ -23,8 +26,8 @@ pub struct BottomUpMatcher<
 }
 
 impl<
-    Dsrc: LazyDecompTreeBounds<HAST, M::Src> + ContiguousDescendants<HAST, Dsrc::IdD, M::Src>,
-    Ddst: LazyDecompTreeBounds<HAST, M::Dst> + ContiguousDescendants<HAST, Ddst::IdD, M::Dst>,
+    Dsrc: LazyDecompTreeBounds<HAST, M::Src> + ContiguousDescendants<HAST, M::Src>,
+    Ddst: LazyDecompTreeBounds<HAST, M::Dst> + ContiguousDescendants<HAST, M::Dst>,
     HAST,
     M,
     const SIZE_THRESHOLD: usize,   // = 1000,
@@ -52,7 +55,6 @@ where
     M: MonoMappingStore,
     HAST::Label: Eq,
     HAST::IdN: Debug,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     pub fn match_it(
         mut mapper: crate::matchers::Mapper<HAST, Dsrc, Ddst, M>,
@@ -61,10 +63,7 @@ where
         for<'t> LendT<'t, HAST>: WithMetaData<compo::StmtCount>,
         for<'t> LendT<'t, HAST>: WithMetaData<compo::MemberImportCount>,
     {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute(&mut mapper, leaf_count);
         mapper
     }

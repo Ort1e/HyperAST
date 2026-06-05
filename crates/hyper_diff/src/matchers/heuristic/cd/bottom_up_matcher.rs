@@ -1,13 +1,15 @@
-use crate::decompressed_tree_store::DecompressedTreeStore;
-use crate::matchers::Mapper;
-use crate::matchers::heuristic::factorized_bounds::DecompTreeBounds;
-use crate::matchers::mapping_store::MonoMappingStore;
-use crate::matchers::similarity_metrics;
-use hyperast::PrimInt;
-use hyperast::store::nodes::compo;
-use hyperast::types::{HyperAST, LendT, NodeId, WithHashs, WithMetaData};
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
+
+use hyperast::PrimInt;
+use hyperast::store::nodes::compo;
+use hyperast::types::{HyperAST, LendT, WithHashs, WithMetaData};
+
+use crate::decompressed_tree_store::FullyDecompressedTreeStore;
+use crate::mappings::MonoMappingStore;
+use crate::matchers::Mapper;
+use crate::matchers::heuristic::factorized_bounds::DecompTreeBounds;
+use crate::similarity_metrics;
 
 use super::leaf_count;
 
@@ -26,7 +28,7 @@ impl<
     Dsrc: DecompTreeBounds<HAST, M::Src>,
     Ddst: DecompTreeBounds<HAST, M::Dst>,
     HAST: HyperAST + Copy,
-    M: MonoMappingStore + Default,
+    M: MonoMappingStore,
     const SIZE_THRESHOLD: usize,   // = 1000,
     const SIM_THRESHOLD_NUM: u64,  // = 6,
     const SIM_THRESHOLD_DEN: u64,  // = 10,
@@ -47,7 +49,6 @@ where
     M::Dst: PrimInt,
     HAST::Label: Eq,
     HAST::IdN: Debug,
-    HAST::IdN: NodeId<IdN = HAST::IdN>,
 {
     pub fn match_it(
         mut mapper: crate::matchers::Mapper<HAST, Dsrc, Ddst, M>,
@@ -56,10 +57,7 @@ where
         for<'t> LendT<'t, HAST>: WithMetaData<compo::StmtCount>,
         for<'t> LendT<'t, HAST>: WithMetaData<compo::MemberImportCount>,
     {
-        mapper.mapping.mappings.topit(
-            mapper.mapping.src_arena.len(),
-            mapper.mapping.dst_arena.len(),
-        );
+        mapper.reserve_mappings();
         Self::execute(&mut mapper, leaf_count);
         mapper
     }
@@ -205,7 +203,7 @@ pub(super) struct PostIter<'a, HAST, D, IdD> {
 impl<'a, HAST, D, IdD> PostIter<'a, HAST, D, IdD>
 where
     HAST: HyperAST + Copy,
-    D: DecompressedTreeStore<HAST, IdD>,
+    D: FullyDecompressedTreeStore<HAST, IdD>,
     IdD: Copy,
 {
     pub fn new(stores: HAST, arena: &'a D) -> Self {
@@ -223,7 +221,7 @@ where
 impl<HAST, D, IdD> Iterator for PostIter<'_, HAST, D, IdD>
 where
     HAST: HyperAST + Copy,
-    D: DecompressedTreeStore<HAST, IdD>,
+    D: FullyDecompressedTreeStore<HAST, IdD>,
     IdD: Copy,
 {
     type Item = IdD;
@@ -235,7 +233,7 @@ where
 impl<HAST, D, IdD> PostIter<'_, HAST, D, IdD>
 where
     HAST: HyperAST + Copy,
-    D: DecompressedTreeStore<HAST, IdD>,
+    D: FullyDecompressedTreeStore<HAST, IdD>,
     IdD: Copy,
 {
     pub fn next_mappable(&mut self, skip: impl Fn(IdD) -> bool) -> Option<IdD> {
@@ -274,9 +272,9 @@ where
 mod tests {
     use super::super::leaves_matcher::LeavesMatcher;
     use crate::decompressed_tree_store::CompletePostOrder;
+    use crate::mappings::MappingStore;
     use crate::matchers::Decompressible;
     use crate::matchers::heuristic::cd::TextSimilarity;
-    use crate::matchers::mapping_store::MappingStore;
     use hyperast::test_utils::simple_tree::vpair_to_stores;
     use hyperast::types::{DecompressedFrom, HyperASTShared};
 
@@ -306,7 +304,7 @@ mod tests {
             mapping: crate::matchers::Mapping {
                 src_arena,
                 dst_arena,
-                mappings: crate::matchers::mapping_store::VecStore::default(),
+                mappings: crate::mappings::VecStore::default(),
             },
         };
         //  MappingStore mappings = new ChangeDistillerLeavesMatcher().match(src, dst);

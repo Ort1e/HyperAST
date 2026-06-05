@@ -86,25 +86,20 @@
 //! ```
 
 use crate::compat::hash_map;
-// use std::collections::hash_map;
 
+use hash_map::DefaultHashBuilder;
 use hash_map::HashMap;
 
-// use std::collections::HashMap;
-use std::{
-    alloc::{Layout, alloc, dealloc},
-    any::TypeId,
-    hash::{BuildHasher, BuildHasherDefault, Hasher},
-    ptr::NonNull,
-};
+use std::alloc::{Layout, alloc, dealloc};
+use std::any::TypeId;
+use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
+use std::ptr::NonNull;
 
-use legion::{
-    Entity,
-    query::{FilterResult, LayoutFilter},
-    storage::{
-        ArchetypeSource, ArchetypeWriter, ComponentSource, ComponentTypeId, EntityLayout,
-        UnknownComponentStorage,
-    },
+use legion::Entity;
+use legion::query::{FilterResult, LayoutFilter};
+use legion::storage::{
+    ArchetypeSource, ArchetypeWriter, ComponentSource, ComponentTypeId, EntityLayout,
+    UnknownComponentStorage,
 };
 
 use super::*;

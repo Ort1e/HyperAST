@@ -1,20 +1,14 @@
 use std::ops::Deref;
 
-use hyperast::{
-    store::{
-        defaults::{LabelIdentifier, NodeIdentifier},
-        nodes::legion::{HashedNodeRef, NodeStore},
-    },
-    types::{self, AAAA, Children, NodeId},
-};
+use hyperast::store::defaults::{LabelIdentifier, NodeIdentifier};
+use hyperast::store::nodes::legion::{HashedNodeRef, NodeStore};
+use hyperast::types::{self, Children};
+use hyperast::types::{NodeId, UniformNodeId};
 
 pub fn as_nospaces<TS>(
-    stores: & hyperast::store::SimpleStores<TS>,
-) -> & hyperast::store::SimpleStores<
-    TS,
-    NoSpaceNodeStoreWrapper,
-    hyperast::store::labels::LabelStore,
-> {
+    stores: &hyperast::store::SimpleStores<TS>,
+) -> &hyperast::store::SimpleStores<TS, NoSpaceNodeStoreWrapper, hyperast::store::labels::LabelStore>
+{
     // SAFETY: The transmute is safe because layouts are the same and we do not modify the data.
     // it would make no sense to add nodes without spaces to an AST with spaces.
     unsafe { std::mem::transmute(stores) }
@@ -75,7 +69,7 @@ impl<IdN> Deref for MIdN<IdN> {
     }
 }
 
-impl<IdN: Clone + Eq + AAAA> NodeId for MIdN<IdN> {
+impl<IdN: Clone + Eq + UniformNodeId> NodeId for MIdN<IdN> {
     type IdN = IdN;
 
     fn as_id(&self) -> &Self::IdN {

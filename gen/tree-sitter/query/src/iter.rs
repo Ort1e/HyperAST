@@ -1,7 +1,8 @@
 use hyperast::position::{TreePath, TreePathMut};
 use hyperast::store::nodes::legion::NodeIdentifier;
-use hyperast::types::{AAAA, NodeStore, TypedHyperAST};
-use hyperast::types::{Childrn, HyperAST, NodeId, Tree, TypedNodeStore, WithChildren};
+use hyperast::types::{Childrn, HyperAST, Tree, TypedNodeStore, WithChildren};
+use hyperast::types::{NodeId, UniformNodeId};
+use hyperast::types::{NodeStore, TypedHyperAST};
 use num::ToPrimitive;
 use std::fmt;
 
@@ -18,7 +19,7 @@ enum Id<IdN> {
     Other(IdN),
 }
 
-impl<IdN: Clone + Eq + AAAA> Id<IdN> {
+impl<IdN: Clone + Eq + UniformNodeId> Id<IdN> {
     fn id(&self) -> &IdN {
         match self {
             Id::Query(node) => node.as_id(),
@@ -130,11 +131,8 @@ impl<
                 };
 
                 if b.has_children() {
-                    self.stack.push((
-                        node,
-                        0,
-                        Some(b.children().unwrap().iter_children().collect()),
-                    ));
+                    let children = b.children().unwrap().iter_children().collect();
+                    self.stack.push((node, 0, Some(children)));
                 }
                 return Some(self.path.clone());
             }
