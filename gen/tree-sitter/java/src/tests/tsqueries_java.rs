@@ -2762,3 +2762,20 @@ mod test_tsg_queries {
         query._check_preprocessed(1, 3);
     }
 }
+
+/// A string literal keeps its children (`string_fragment`, `escape_sequence`), as in the
+/// Tree-sitter tree: a query written against Tree-sitter that names them must match.
+#[test]
+fn test_string_literal_children() {
+    let text = r#"
+class A {
+    String f() { return "abc"; }
+    String g() { return "\n"; }
+}
+    "#;
+    let text = text.as_bytes();
+    assert_eq!(2, run_stepped(r#"(string_literal) @s"#, text));
+    assert_eq!(1, run_stepped(r#"(string_literal (string_fragment)) @s"#, text));
+    assert_eq!(1, run_stepped(r#"(string_literal (escape_sequence)) @s"#, text));
+    assert_eq!(1, run_stepped(r#"(return_statement (string_literal (string_fragment))) @r"#, text));
+}
