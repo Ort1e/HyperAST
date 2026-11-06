@@ -193,6 +193,52 @@ where
     }
 }
 
+/// Same as [`eq_node`], and the fields (roles) stored in the node are the given ones.
+///
+/// A child's field is stored in its parent (`compo::Roles` and `compo::RoleOffsets`). Two nodes
+/// with the same kind, label and children but different fields are different nodes: e.g. the
+/// hidden `_string` wrapper of a `string_literal` is `value:` of a cast in one place and `right:`
+/// of an assignment in another. The hash does not depend on the fields, so the nodes only share
+/// a bucket of the deduplication table.
+pub fn eq_node_roles<'a, K, L, I, R>(
+    kind: &'a K,
+    label_id: Option<&'a L>,
+    children: &'a [I],
+    roles: &'a [R],
+    offsets: &'a [u8],
+) -> impl Fn(EntryRef) -> bool + 'a
+where
+    K: 'static + Eq + Copy + Send + Sync,
+    L: 'static + Eq + Copy + Send + Sync,
+    I: 'static + Eq + Copy + Send + Sync,
+    R: 'static + PartialEq + Send + Sync,
+{
+    let eq = eq_node(kind, label_id, children);
+    move |x: EntryRef| roles_match(&x, roles, offsets) && eq(x)
+}
+
+/// The node stores exactly these fields (none when `roles` is empty, as `RoleAcc::add_md`).
+pub fn eq_roles<'a, R>(roles: &'a [R], offsets: &'a [u8]) -> impl Fn(EntryRef) -> bool + 'a
+where
+    R: 'static + PartialEq + Send + Sync,
+{
+    move |x: EntryRef| roles_match(&x, roles, offsets)
+}
+
+fn roles_match<R>(x: &EntryRef, roles: &[R], offsets: &[u8]) -> bool
+where
+    R: 'static + PartialEq + Send + Sync,
+{
+    use crate::store::nodes::compo;
+    let stored_roles = x.get_component::<compo::Roles<R>>().ok();
+    let stored_offsets = x.get_component::<compo::RoleOffsets>().ok();
+    match (stored_roles, stored_offsets) {
+        (Some(r), Some(o)) => r.0.as_ref() == roles && o.0.as_ref() == offsets,
+        (None, None) => roles.is_empty(),
+        _ => false,
+    }
+}
+
 impl ErasedHolder for legion::world::Entry<'_> {
     fn unerase_ref<T: 'static + Send + Sync>(&self, tid: std::any::TypeId) -> Option<&T> {
         if tid == std::any::TypeId::of::<T>() {

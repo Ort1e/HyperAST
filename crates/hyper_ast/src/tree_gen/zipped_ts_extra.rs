@@ -14,7 +14,7 @@ use crate::store::nodes::legion::DedupMap;
 use crate::store::nodes::legion::NodeIdentifier;
 use crate::store::nodes::legion::RawHAST;
 use crate::store::nodes::legion::dyn_builder::EntityBuilder;
-use crate::store::nodes::legion::eq_node;
+use crate::store::nodes::legion::eq_node_roles;
 use crate::store::nodes::legion::{dyn_builder, subtree_builder};
 use crate::store::nodes::{DefaultNodeStore as NodeStore, GatherAttrErazed};
 
@@ -717,7 +717,13 @@ where
         // eg. acc.simple.kind == Type::Comment and acc.simple.kind.is_literal()
         let label_id = label.as_deref().map(|l| label_store.get_or_insert(l));
 
-        let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
+        let eq = eq_node_roles(
+            &interned_kind,
+            label_id.as_ref(),
+            &acc.simple.children,
+            &acc.role.roles,
+            &acc.role.offsets,
+        );
 
         #[cfg(feature = "subtree-stats")]
         (node_store.inner.stats()).add_height_non_dedup(metrics.height);

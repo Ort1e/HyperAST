@@ -296,6 +296,80 @@ fn c_query_on_wide_nodes_test() {
     assert!(elapsed < std::time::Duration::from_secs(2), "{:?} for 4,000 elements", elapsed);
 }
 
+/// Builds `files` one after the other with one generator into the same stores (as the git
+/// processor does for the files of a commit), then counts the matches of `query` in the last one
+/// and dumps its nodes with the fields (roles) stored in each of them.
+fn hyperast_matches_in_last_file(query: &str, files: &[&str]) -> (usize, String) {
+    use hyperast::types::{WithChildren, WithRoles};
+    let query = hyperast_tsquery::Query::new(query, crate::language()).unwrap();
+    let mut stores = SimpleStores::default();
+    let mut last = None;
+    {
+        let mut tree_gen = crate::legion_ts_simp::CTreeGen::bare(&mut stores);
+        for text in files {
+            let tree = tree_sitter_parse(text.as_bytes());
+            last = Some(
+                tree_gen
+                    .generate_file(b"", text.as_bytes(), tree.walk())
+                    .local
+                    .compressed_node,
+            );
+        }
+    }
+    let file = last.unwrap();
+
+    fn dump(stores: &SimpleStores, id: hyperast::store::nodes::legion::NodeIdentifier, depth: usize, out: &mut String) {
+        use hyperast::types::{HyperAST, NodeStore};
+        let n = stores.node_store.resolve(id);
+        let cs: Vec<_> = n.children().map(|cs| cs.collect()).unwrap_or_default();
+        let roles: Vec<String> = (0..cs.len())
+            .filter_map(|i| n.role_at::<crate::Role>(i as u16).map(|r| format!("{}:{:?}", i, r)))
+            .collect();
+        let ty = (&stores).resolve_type(&id);
+        let hidden = if hyperast::types::HyperType::is_hidden(&ty) { " (hidden)" } else { "" };
+        let name = hyperast::types::HyperType::as_static_str(&ty);
+        out.push_str(&format!("{}{}{} {:?}\n", "  ".repeat(depth), name, hidden, roles));
+        drop(n);
+        for c in cs {
+            dump(stores, c, depth + 1, out);
+        }
+    }
+    let mut dumped = String::new();
+    dump(&stores, file, 0, &mut dumped);
+
+    let pos = hyperast::position::StructuralPosition::new(file);
+    let cursor = hyperast_tsquery::hyperast_cursor::TreeCursor::new(&stores, pos);
+    let mut matches = query.matches(cursor);
+    let mut count = 0;
+    while matches.next().is_some() {
+        count += 1;
+    }
+    (count, dumped)
+}
+
+/// A node is not shared between two places where its parent stores a different field for it.
+/// HyperAST stores a child's field (role) in its parent, but the parent's identity (kind, label,
+/// children) did not include the fields: the first file built (`char *s = (const char *) "";`,
+/// `value:` of a cast) decided the field of the empty literal for all the later files, whose
+/// `x = "";` lost `right:` (GNOME/glib, `glib/libcharset/localcharset.c` after
+/// `fuzzing/fuzz_data_input_stream_read_upto.c`: 2,598 pairs of the precision experiment).
+#[test]
+fn c_same_node_with_different_fields_is_not_merged_test() {
+    const FIRST: &str = "const char *f(void) { s = (const char *) \"\"; }\n";
+    const SECOND: &str = "void g(void) { x = \"\"; }\n";
+    const QUERY: &str = "(assignment_expression right: (string_literal)) @c";
+    let expected = tree_sitter_matches(QUERY, SECOND);
+    assert_eq!(expected, 1);
+    let (alone, _) = hyperast_matches_in_last_file(QUERY, &[SECOND]);
+    assert_eq!(alone, expected, "the second file alone");
+    let (after, dumped) = hyperast_matches_in_last_file(QUERY, &[FIRST, SECOND]);
+    assert_eq!(
+        after, expected,
+        "the second file after the first, in the same stores; its nodes with the stored fields:\n{}",
+        dumped
+    );
+}
+
 /// A C file without parse errors, with most kinds of declarations, statements and expressions.
 const VARIED: &str = r#"#include <stdio.h>
 #define MAX(a, b) ((a) > (b) ? (a) : (b))

@@ -7,7 +7,7 @@ use hyperast::store::SimpleStores;
 use hyperast::store::nodes::compo;
 use hyperast::store::nodes::legion::DedupMap;
 use hyperast::store::nodes::legion::NodeIdentifier;
-use hyperast::store::nodes::legion::eq_node;
+use hyperast::store::nodes::legion::eq_node_roles;
 use hyperast::store::nodes::legion::subtree_builder;
 use hyperast::tree_gen;
 use hyperast::tree_gen::TotalBytesGlobalData as _;
@@ -740,7 +740,13 @@ where
         let label_id = label
             .as_deref()
             .map(|l| self.stores.label_store.get_or_insert(l));
-        let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
+        let eq = eq_node_roles(
+            &interned_kind,
+            label_id.as_ref(),
+            &acc.simple.children,
+            &acc.role.roles,
+            &acc.role.offsets,
+        );
 
         let dedup = &mut node_store.dedup;
         let dedup = self.dedup.as_mut().map_or(dedup, |x| &mut x.0);

@@ -13,7 +13,7 @@ use hyperast::store::defaults::LabelIdentifier;
 use hyperast::store::nodes::legion::DedupMap;
 use hyperast::store::nodes::legion::HashedNodeRef;
 use hyperast::store::nodes::legion::NodeIdentifier;
-use hyperast::store::nodes::legion::{eq_node, subtree_builder};
+use hyperast::store::nodes::legion::{eq_node_roles, subtree_builder};
 use hyperast::tree_gen;
 use hyperast::tree_gen::TsType;
 use hyperast::tree_gen::parser::{Node, TreeCursor};
@@ -759,7 +759,13 @@ where
             // eg. acc.simple.kind == Type::Comment and acc.simple.kind.is_literal()
             stores.label_store.get_or_insert(label)
         });
-        let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
+        let eq = eq_node_roles(
+            &interned_kind,
+            label_id.as_ref(),
+            &acc.simple.children,
+            &acc.role.roles,
+            &acc.role.offsets,
+        );
 
         let node_store = &mut stores.node_store;
         #[cfg(feature = "subtree-stats")]
@@ -1010,7 +1016,13 @@ where
             let hsyntax = metrics.hashs.most_discriminating();
             let hashable = &hsyntax;
 
-            let eq = eq_node(&interned_kind, label_id.as_ref(), &acc.simple.children);
+            let eq = eq_node_roles(
+                &interned_kind,
+                label_id.as_ref(),
+                &acc.simple.children,
+                &acc.role.roles,
+                &acc.role.offsets,
+            );
 
             let dedup = &mut self.stores.node_store.dedup;
             let dedup = self.dedup.as_mut().map_or(dedup, |x| &mut x.0);
